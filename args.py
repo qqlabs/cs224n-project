@@ -2,6 +2,7 @@ import argparse
 
 def get_train_test_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument('--adv-train', action='store_true') # Adversarial
     parser.add_argument('--batch-size', type=int, default=16)
     parser.add_argument('--num-epochs', type=int, default=3)
     parser.add_argument('--lr', type=float, default=3e-5)

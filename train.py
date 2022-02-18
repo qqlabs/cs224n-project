@@ -15,6 +15,8 @@ from torch.utils.data import DataLoader
 from torch.utils.data.sampler import RandomSampler, SequentialSampler
 from args import get_train_test_args
 
+from model import DomainDiscriminator, DomainQA
+
 from tqdm import tqdm
 
 def prepare_eval_data(dataset_dict, tokenizer):
@@ -136,6 +138,7 @@ def read_and_process(args, tokenizer, dataset_dict, dir_name, dataset_name, spli
 #TODO: use a logger, use tensorboard
 class Trainer():
     def __init__(self, args, log):
+        # Set parameters
         self.lr = args.lr
         self.num_epochs = args.num_epochs
         self.device = args.device
@@ -150,7 +153,7 @@ class Trainer():
 
     def save(self, model):
         model.save_pretrained(self.path)
-
+    
     def evaluate(self, model, data_loader, data_dict, return_preds=False, split='validation'):
         device = self.device
 
@@ -240,6 +243,110 @@ class Trainer():
                     global_idx += 1
         return best_scores
 
+# This implements the QA model with adversarial learning    
+class AdversarialTrainer(Trainer):
+    def __init__(self, args, log):
+        super(AdvTrainer, self).__init__(args)
+        self.n_train_datasets = len(args.train_datasets.split(",")) # This gives me the number of training datasets I have...
+        
+    def save(self, model):
+        torch.save(model.state_dict(), os.path.join(self.save_dir, 'checkpoint_QA')) # Save the QA model
+        torch.save(self.Discriminator.state_dict(), os.path.join(self.save_dir, 'checkpoint_discriminator')) # Saves my discriminator model in a discriminator subfolder lol
+            
+    def create_discriminator(self):
+        self.Discriminator = DomainDiscriminator() # Create my discriminator
+        self.d_optim = AdamW(self.Discriminator.parameters(), lr=self.lr) # In this case I am using the same LR as normal QA model
+        
+    def discriminator_loss
+        
+    def domain_invariance_penalty(self, outputs):
+        hidden_states = hidden_states[:, 0] # CLS embeddings
+        log_prob = self.Discriminator(hidden) # Spits out my probabilities
+        targets = torch.ones_like(log_prob) * (1 / self.n_train_datasets) # Ok so this is what I would get if it was a simple uniform distribution
+        discriminator_loss = nn.KLDivLoss(reduction="batchmean")(log_prob, targets)
+        return discriminator_loss
+    
+    def train(self, model, train_dataloader, eval_dataloader, val_dict):
+        device = self.device
+        model.to(device)
+        optim = AdamW(model.parameters(), lr=self.lr)
+        global_idx = 0
+        best_scores = {'F1': -1.0, 'EM': -1.0}
+        tbx = SummaryWriter(self.save_dir)
+
+        for epoch_num in range(self.num_epochs):
+            self.log.info(f'Epoch: {epoch_num}')
+            with torch.enable_grad(), tqdm(total=len(train_dataloader.dataset)) as progress_bar:
+                for batch in train_dataloader:
+                    
+                    optim.zero_grad()
+                    model.train()
+                    self.Discriminator.train()
+                    
+                    # Process the data & get the outputs!
+                    input_ids = batch['input_ids'].to(device)
+                    attention_mask = batch['attention_mask'].to(device)
+                    start_positions = batch['start_positions'].to(device)
+                    end_positions = batch['end_positions'].to(device)
+                    outputs = model(input_ids, attention_mask=attention_mask,
+                                    start_positions=start_positions,
+                                    end_positions=end_positions)                    
+                    
+                    # Start with the discriminator
+                    self.d_optim.zero_grad() # Set to 0 grad before commencing training
+                    dis_loss = self.discriminator_loss(a)
+                    dis_loss.backward() # Backward propagate
+                    self.d_optim.step() # Take a step
+                    self.d_optim.zero_grad() # Reset to 0 grad
+                    
+                    # Now, train the QA model
+                    baseloss = outputs[0]
+                    penaltyloss = 
+                    
+                    total_loss.backward()
+                    
+                    
+                    
+                    
+                    
+
+                    loss = outputs[0]
+                    loss.backward()
+                    optim.step()
+                    
+                    # NOW TRAIN DISCRIMINATOR!!!
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    progress_bar.update(len(input_ids))
+                    progress_bar.set_postfix(epoch=epoch_num, NLL=loss.item())
+                    tbx.add_scalar('train/NLL', loss.item(), global_idx)
+                    if (global_idx % self.eval_every) == 0:
+                        self.log.info(f'Evaluating at step {global_idx}...')
+                        preds, curr_score = self.evaluate(model, eval_dataloader, val_dict, return_preds=True)
+                        results_str = ', '.join(f'{k}: {v:05.2f}' for k, v in curr_score.items())
+                        self.log.info('Visualizing in TensorBoard...')
+                        for k, v in curr_score.items():
+                            tbx.add_scalar(f'val/{k}', v, global_idx)
+                        self.log.info(f'Eval {results_str}')
+                        if self.visualize_predictions:
+                            util.visualize(tbx,
+                                           pred_dict=preds,
+                                           gold_dict=val_dict,
+                                           step=global_idx,
+                                           split='val',
+                                           num_visuals=self.num_visuals)
+                        if curr_score['F1'] >= best_scores['F1']:
+                            best_scores = curr_score
+                            self.save(model)
+                    global_idx += 1
+        return best_scores      
+    
 def get_dataset(args, datasets, data_dir, tokenizer, split_name):
     datasets = datasets.split(',')
     dataset_dict = None
@@ -251,59 +358,4 @@ def get_dataset(args, datasets, data_dir, tokenizer, split_name):
     data_encodings = read_and_process(args, tokenizer, dataset_dict, data_dir, dataset_name, split_name)
     return util.QADataset(data_encodings, train=(split_name=='train')), dataset_dict
 
-def main():
-    # define parser and arguments
-    args = get_train_test_args()
 
-    util.set_seed(args.seed)
-    model = DistilBertForQuestionAnswering.from_pretrained("distilbert-base-uncased")
-    tokenizer = DistilBertTokenizerFast.from_pretrained('distilbert-base-uncased')
-
-    if args.do_train:
-        if not os.path.exists(args.save_dir):
-            os.makedirs(args.save_dir)
-        args.save_dir = util.get_save_dir(args.save_dir, args.run_name)
-        log = util.get_logger(args.save_dir, 'log_train')
-        log.info(f'Args: {json.dumps(vars(args), indent=4, sort_keys=True)}')
-        log.info("Preparing Training Data...")
-        args.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-        trainer = Trainer(args, log)
-        train_dataset, _ = get_dataset(args, args.train_datasets, args.train_dir, tokenizer, 'train')
-        log.info("Preparing Validation Data...")
-        val_dataset, val_dict = get_dataset(args, args.train_datasets, args.val_dir, tokenizer, 'val')
-        train_loader = DataLoader(train_dataset,
-                                batch_size=args.batch_size,
-                                sampler=RandomSampler(train_dataset))
-        val_loader = DataLoader(val_dataset,
-                                batch_size=args.batch_size,
-                                sampler=SequentialSampler(val_dataset))
-        best_scores = trainer.train(model, train_loader, val_loader, val_dict)
-    if args.do_eval:
-        args.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-        split_name = 'test' if 'test' in args.eval_dir else 'validation'
-        log = util.get_logger(args.save_dir, f'log_{split_name}')
-        trainer = Trainer(args, log)
-        checkpoint_path = os.path.join(args.save_dir, 'checkpoint')
-        model = DistilBertForQuestionAnswering.from_pretrained(checkpoint_path)
-        model.to(args.device)
-        eval_dataset, eval_dict = get_dataset(args, args.eval_datasets, args.eval_dir, tokenizer, split_name)
-        eval_loader = DataLoader(eval_dataset,
-                                 batch_size=args.batch_size,
-                                 sampler=SequentialSampler(eval_dataset))
-        eval_preds, eval_scores = trainer.evaluate(model, eval_loader,
-                                                   eval_dict, return_preds=True,
-                                                   split=split_name)
-        results_str = ', '.join(f'{k}: {v:05.2f}' for k, v in eval_scores.items())
-        log.info(f'Eval {results_str}')
-        # Write submission file
-        sub_path = os.path.join(args.save_dir, split_name + '_' + args.sub_file)
-        log.info(f'Writing submission file to {sub_path}...')
-        with open(sub_path, 'w', newline='', encoding='utf-8') as csv_fh:
-            csv_writer = csv.writer(csv_fh, delimiter=',')
-            csv_writer.writerow(['Id', 'Predicted'])
-            for uuid in sorted(eval_preds):
-                csv_writer.writerow([uuid, eval_preds[uuid]])
-
-
-if __name__ == '__main__':
-    main()
