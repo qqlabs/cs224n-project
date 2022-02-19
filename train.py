@@ -52,7 +52,7 @@ def prepare_eval_data(dataset_dict, tokenizer):
 
 
 
-def prepare_train_data(dataset_dict, tokenizer):
+def prepare_train_data(dataset_dict, tokenizer, domain_id):
     tokenized_examples = tokenizer(dataset_dict['question'],
                                    dataset_dict['context'],
                                    truncation="only_second",
@@ -68,12 +68,13 @@ def prepare_train_data(dataset_dict, tokenizer):
     tokenized_examples["start_positions"] = []
     tokenized_examples["end_positions"] = []
     tokenized_examples['id'] = []
+    tokenized_examples['domain_id'] = []
     inaccurate = 0
     for i, offsets in enumerate(tqdm(offset_mapping)):
         # We will label impossible answers with the index of the CLS token.
         input_ids = tokenized_examples["input_ids"][i]
         cls_index = input_ids.index(tokenizer.cls_token_id)
-
+        
         # Grab the sequence corresponding to that example (to know what is the context and what is the question).
         sequence_ids = tokenized_examples.sequence_ids(i)
 
@@ -84,6 +85,10 @@ def prepare_train_data(dataset_dict, tokenizer):
         start_char = answer['answer_start'][0]
         end_char = start_char + len(answer['text'][0])
         tokenized_examples['id'].append(dataset_dict['id'][sample_index])
+        
+        # also append domain that this example is from
+        tokenized_examples['domain_id'].append(domain_id)
+
         # Start token index of the current span in the text.
         token_start_index = 0
         while sequence_ids[token_start_index] != 1:
@@ -120,14 +125,14 @@ def prepare_train_data(dataset_dict, tokenizer):
 
 
 
-def read_and_process(args, tokenizer, dataset_dict, dir_name, dataset_name, split):
+def read_and_process(args, tokenizer, dataset_dict, dir_name, dataset_name, split, domain_id):
     #TODO: cache this if possible
     cache_path = f'{dir_name}/{dataset_name}_encodings.pt'
     if os.path.exists(cache_path) and not args.recompute_features:
         tokenized_examples = util.load_pickle(cache_path)
     else:
         if split=='train':
-            tokenized_examples = prepare_train_data(dataset_dict, tokenizer)
+            tokenized_examples = prepare_train_data(dataset_dict, tokenizer, domain_id)
         else:
             tokenized_examples = prepare_eval_data(dataset_dict, tokenizer)
         util.save_pickle(tokenized_examples, cache_path)
@@ -257,13 +262,16 @@ class AdversarialTrainer(Trainer):
         self.Discriminator = DomainDiscriminator() # Create my discriminator
         self.d_optim = AdamW(self.Discriminator.parameters(), lr=self.lr) # In this case I am using the same LR as normal QA model
         
-    def discriminator_loss
+    def discriminator_loss(self, disc_log_probs, true_labels):
+        criterion = torch.nn.NLLLoss()
+        loss = criterion(disc_log_probs, true_labels)
+        return loss
         
     def domain_invariance_penalty(self, outputs):
         hidden_states = hidden_states[:, 0] # CLS embeddings
         log_prob = self.Discriminator(hidden) # Spits out my probabilities
         targets = torch.ones_like(log_prob) * (1 / self.n_train_datasets) # Ok so this is what I would get if it was a simple uniform distribution
-        discriminator_loss = nn.KLDivLoss(reduction="batchmean")(log_prob, targets)
+        discriminator_loss = torch.nn.KLDivLoss(reduction="batchmean")(log_prob, targets)
         return discriminator_loss
     
     def train(self, model, train_dataloader, eval_dataloader, val_dict):
@@ -288,13 +296,22 @@ class AdversarialTrainer(Trainer):
                     attention_mask = batch['attention_mask'].to(device)
                     start_positions = batch['start_positions'].to(device)
                     end_positions = batch['end_positions'].to(device)
+                    domain_id = batch['domain_id'].to(device)
+
+                    # QA Output
                     outputs = model(input_ids, attention_mask=attention_mask,
                                     start_positions=start_positions,
-                                    end_positions=end_positions)                    
+                                    end_positions=end_positions,
+                                    output_hidden_states=True)                    
                     
+                    # QA hidden states
+                    QA_last_hidden_state = outputs.hidden_state[0]
+
+
                     # Start with the discriminator
                     self.d_optim.zero_grad() # Set to 0 grad before commencing training
-                    dis_loss = self.discriminator_loss(a)
+                    disc_output = self.Discriminator(QA_last_hidden_state)
+                    dis_loss = self.discriminator_loss(disc_output, domain_id)
                     dis_loss.backward() # Backward propagate
                     self.d_optim.step() # Take a step
                     self.d_optim.zero_grad() # Reset to 0 grad
@@ -347,7 +364,7 @@ class AdversarialTrainer(Trainer):
                     global_idx += 1
         return best_scores      
     
-def get_dataset(args, datasets, data_dir, tokenizer, split_name):
+def get_dataset(args, datasets, data_dir, tokenizer, split_name, domain_id):
     datasets = datasets.split(',')
     dataset_dict = None
     dataset_name=''
@@ -355,7 +372,7 @@ def get_dataset(args, datasets, data_dir, tokenizer, split_name):
         dataset_name += f'_{dataset}'
         dataset_dict_curr = util.read_squad(f'{data_dir}/{dataset}')
         dataset_dict = util.merge(dataset_dict, dataset_dict_curr)
-    data_encodings = read_and_process(args, tokenizer, dataset_dict, data_dir, dataset_name, split_name)
+    data_encodings = read_and_process(args, tokenizer, dataset_dict, data_dir, dataset_name, split_name, domain_id)
     return util.QADataset(data_encodings, train=(split_name=='train')), dataset_dict
 
 

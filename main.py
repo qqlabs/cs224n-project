@@ -4,6 +4,7 @@ import argparse
 
 import torch
 import torch.multiprocessing as mp
+from torch.utils.data import ConcatDataset
 
 from train import *
 
@@ -31,12 +32,18 @@ def main():
         else:
             trainer = Trainer(args, log)
             
-        train_dataset, _ = get_dataset(args, args.train_datasets, args.train_dir, tokenizer, 'train')
+        train_dataset = []
+
+        for domain_id, dataset_name in enumerate(split(args.train_datasets, ',')):
+            tmp_train_dataset, _ = get_dataset(args, dataset_name, args.train_dir, tokenizer, 'train', domain_id)
+            train_dataset.append(tmp_train_dataset)
+
         log.info("Preparing Validation Data...")
         val_dataset, val_dict = get_dataset(args, args.train_datasets, args.val_dir, tokenizer, 'val')
-        train_loader = DataLoader(train_dataset,
+        train_loader = DataLoader(ConcatDataset(train_dataset),
                                 batch_size=args.batch_size,
-                                sampler=RandomSampler(train_dataset))
+                                # sampler=RandomSampler(train_dataset),
+                                shuffle=True)
         val_loader = DataLoader(val_dataset,
                                 batch_size=args.batch_size,
                                 sampler=SequentialSampler(val_dataset))
