@@ -1,8 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from pytorch_pretrained_bert import BertModel, BertConfig
-from utils import kl_coef
 
 # This creates the Domain Discriminator model
 # This model takes in the hidden representation of the question-para pair from the QA model and tries to guess the domain (dataset)

@@ -1,12 +1,23 @@
 import os
-import time
-import argparse
+import csv
+import json
+import util
+
+from args import get_train_test_args
 
 import torch
 import torch.multiprocessing as mp
 from torch.utils.data import ConcatDataset
 
-from train import *
+from transformers import DistilBertTokenizerFast
+from transformers import DistilBertForQuestionAnswering
+
+from torch.utils.data import DataLoader
+from torch.utils.data.sampler import RandomSampler, SequentialSampler
+
+from train import Trainer, AdversarialTrainer
+
+from data_processing import create_cache, get_dataset
 
 def main():
     # define parser and arguments
@@ -27,23 +38,37 @@ def main():
         args.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         
         # Choose between normal QA model or QA with adversarial
-        if args.adv-train:
+        if args.adv_train:
             trainer = AdversarialTrainer(args, log)
         else:
             trainer = Trainer(args, log)
             
         train_dataset = []
 
-        for domain_id, dataset_name in enumerate(split(args.train_datasets, ',')):
+        # Create cache by tokenizing, don't load anything so we use less memory
+        for domain_id, dataset_name in enumerate(args.train_datasets.split(',')):
+            create_cache(args, dataset_name, args.train_dir, tokenizer, 'train', domain_id)
+
+        # We need to include the domain_id in our training data since the gan needs the 
+        # true domain_id to calculate loss.
+        # We will assign each domain_id based on the order they are listed in the
+        # args for training datasets. This will remain fixed.
+
+        # We only include domain_id in training data since the gan only operates on the
+        # training stage.
+        for domain_id, dataset_name in enumerate(args.train_datasets.split(',')):
             tmp_train_dataset, _ = get_dataset(args, dataset_name, args.train_dir, tokenizer, 'train', domain_id)
             train_dataset.append(tmp_train_dataset)
 
-        log.info("Preparing Validation Data...")
-        val_dataset, val_dict = get_dataset(args, args.train_datasets, args.val_dir, tokenizer, 'val')
+
         train_loader = DataLoader(ConcatDataset(train_dataset),
                                 batch_size=args.batch_size,
                                 # sampler=RandomSampler(train_dataset),
                                 shuffle=True)
+
+        log.info("Preparing Validation Data...")
+        val_dataset, val_dict = get_dataset(args, args.train_datasets, args.val_dir, tokenizer, 'val')
+        
         val_loader = DataLoader(val_dataset,
                                 batch_size=args.batch_size,
                                 sampler=SequentialSampler(val_dataset))
