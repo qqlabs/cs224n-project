@@ -1,5 +1,6 @@
 /datasets/*
 /save/*
+datasets_50k.tar.gz
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -125,6 +125,7 @@ class AdversarialTrainer(Trainer):
     def __init__(self, args, log):
         super(AdversarialTrainer, self).__init__(args, log)
         self.n_train_datasets = len(args.train_datasets.split(",")) # This gives me the number of training datasets I have...
+        self.create_discriminator()
         
     def save(self, model):
         torch.save(model.state_dict(), os.path.join(self.save_dir, 'checkpoint_QA')) # Save the QA model
@@ -133,6 +134,7 @@ class AdversarialTrainer(Trainer):
     def create_discriminator(self):
         self.Discriminator = DomainDiscriminator() # Create my discriminator
         self.dis_optim = AdamW(self.Discriminator.parameters(), lr=self.lr) # In this case I am using the same LR as normal QA model
+        self.Discriminator.to(self.device)
     
     def discriminator_loss(self, dis_log_probs, true_labels):
         criterion = torch.nn.NLLLoss()

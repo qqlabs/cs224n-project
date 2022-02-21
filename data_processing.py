@@ -145,7 +145,7 @@ def create_cache(args, datasets, data_dir, tokenizer, split_name, domain_id):
         print("Cache created successfully")
     return
 
-def get_dataset(args, datasets, data_dir, tokenizer, split_name, domain_id):
+def get_dataset(args, datasets, data_dir, tokenizer, split_name, domain_id=-1):
     datasets = datasets.split(',')
     dataset_dict = None
     dataset_name=''
