@@ -125,6 +125,7 @@ class AdversarialTrainer(Trainer):
     def __init__(self, args, log):
         super(AdversarialTrainer, self).__init__(args, log)
         self.n_train_datasets = len(args.train_datasets.split(",")) # This gives me the number of training datasets I have...
+        self.dis_lambda = args.dis_lambda
         self.create_discriminator()
         
     def save(self, model):
@@ -132,7 +133,7 @@ class AdversarialTrainer(Trainer):
         torch.save(self.Discriminator.state_dict(), os.path.join(self.save_dir, 'checkpoint_discriminator')) # Saves my discriminator model in a discriminator subfolder lol
             
     def create_discriminator(self):
-        self.Discriminator = DomainDiscriminator() # Create my discriminator
+        self.Discriminator = DomainDiscriminator(num_classes=self.n_train_datasets) # Create my discriminator
         self.dis_optim = AdamW(self.Discriminator.parameters(), lr=self.lr) # In this case I am using the same LR as normal QA model
         self.Discriminator.to(self.device)
     
@@ -185,30 +186,42 @@ class AdversarialTrainer(Trainer):
                     # Last layer of hidden_states is pulled like this
                     # See https://github.com/huggingface/transformers/blob/v4.16.2/src/transformers/models/distilbert/modeling_distilbert.py#L330
                     qa_last_hidden_state = qa_outputs.hidden_states[-1]
-
-
-                    # DISCRIMINATOR TRAINING
-                    self.dis_optim.zero_grad() # Set to 0 grad before commencing training
-
-                    # Predict with Discriminator
-                    dis_output = self.Discriminator(qa_last_hidden_state)
+                    # send in the CLS embedding since we have 384 tokens
+                    qa_hidden_input = qa_last_hidden_state[:, 0]
                     
-                    # Get Discriminator Loss
-                    dis_loss = self.discriminator_loss(dis_output, domain_id)
-                    dis_loss.backward() # Backward propagate
-                    self.dis_optim.step() # Take a step
-                    self.dis_optim.zero_grad() # Reset to 0 grad
+                    # Can also average the tokens
+                    # qa_hidden_input = torch.mean(qa_last_hidden_state, dim=1)
                     
 
-                    # QA TRAINING WITH DISCRIMINATOR LOSS
+                    # QA TRAINING WITH DISCRIMINATOR ADVERSAIRAL LOSS
                     # we subtract the discriminator loss to penalize the qa_loss
                     # since higher loss is "better" (negative loss)
-                    total_loss = qa_loss - self.lambda_adv*dis_loss 
+                    
+                    # Call discriminator again as an adversarial loss
+                    adv_output = self.Discriminator(qa_hidden_input)
+                    adv_loss = self.discriminator_loss(adv_output, domain_id)
+
+                    # This is the new loss that penalizes the QA loss if adv_loss does well
+                    total_loss = qa_loss - self.dis_lambda*adv_loss 
                     total_loss.backward()
                     
                     qa_optim.step()
                     qa_optim.zero_grad()
                     
+                    # DISCRIMINATOR TRAINING
+                    # self.dis_optim.zero_grad() # Set to 0 grad before commencing training
+
+                    # Predict with Discriminator
+                    # This time, need to detach so we don't propagate the hidden states
+                    # twice through the gradient.
+                    dis_output = self.Discriminator(qa_hidden_input.detach())
+                    
+                    # Get Discriminator Loss
+                    dis_loss = self.discriminator_loss(dis_output, domain_id)
+                    dis_loss = dis_loss.mean() # average the loss across categories?
+                    dis_loss.backward() # Backward propagate
+                    self.dis_optim.step() # Take a step
+                    self.dis_optim.zero_grad() # Reset to 0 grad
                     
                     # Display epochs and losses in progress bar
                     progress_bar.update(len(input_ids))
