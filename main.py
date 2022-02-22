@@ -60,7 +60,6 @@ def main():
             tmp_train_dataset, _ = get_dataset(args, dataset_name, args.train_dir, tokenizer, 'train', domain_id)
             train_dataset.append(tmp_train_dataset)
 
-
         train_loader = DataLoader(ConcatDataset(train_dataset),
                                 batch_size=args.batch_size,
                                 # sampler=RandomSampler(train_dataset),
@@ -72,13 +71,51 @@ def main():
         val_loader = DataLoader(val_dataset,
                                 batch_size=args.batch_size,
                                 sampler=SequentialSampler(val_dataset))
-        best_scores = trainer.train(model, train_loader, val_loader, val_dict)
+        # Train on IID datasets
+        best_scores = {'F1': -1.0, 'EM': -1.0}                        
+        best_scores = trainer.train(model, train_loader, val_loader, val_dict, best_scores, "train")
+
+        # Finetuning stage...
+        log.info("Commencing finetuning phase...")
+
+        # Now, prepare my OOD datasets
+        log.info("Preparing OOD Training Data...")
+        OOD_train_dataset = []
+
+        for domain_id, dataset_name in enumerate(args.OOD_train_datasets.split(',')):
+            create_cache(args, dataset_name, args.OOD_train_dir, tokenizer, 'train', domain_id)
+ 
+        for domain_id, dataset_name in enumerate(args.OOD_train_datasets.split(',')):
+            tmp_train_dataset, _ = get_dataset(args, dataset_name, args.OOD_train_dir, tokenizer, 'train', domain_id)
+            OOD_train_dataset.append(tmp_train_dataset)
+
+        OOD_train_loader = DataLoader(ConcatDataset(OOD_train_dataset),
+                                batch_size=args.batch_size,
+                                # sampler=RandomSampler(train_dataset),
+                                shuffle=True)
+
+        log.info("Preparing OOD Validation Data...")
+        OOD_val_dataset, OOD_val_dict = get_dataset(args, args.OOD_train_datasets, args.OOD_val_dir, tokenizer, 'val')
+        
+        OOD_val_loader = DataLoader(OOD_val_dataset,
+                                batch_size=args.batch_size,
+                                sampler=SequentialSampler(OOD_val_dataset))   
+
+        # Load my last checkpoint
+        checkpoint_path = os.path.join(args.save_dir, 'checkpoint') # Find my checkpoint
+        model = DistilBertForQuestionAnswering.from_pretrained(checkpoint_path) # Load checkpoint
+
+        # Now, finetune my model
+        best_scores_finetune = trainer.train(model, OOD_train_loader, OOD_val_loader, OOD_val_dict, best_scores, "finetune")
+        # FYI: The best scores that I load into here is the final best scores from the first part of the training
+        # I.e. I will not update my model's parameters unless it beats the previous results
+
     if args.do_eval:
         args.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         split_name = 'test' if 'test' in args.eval_dir else 'validation'
         log = util.get_logger(args.save_dir, f'log_{split_name}')
         trainer = Trainer(args, log)
-        checkpoint_path = os.path.join(args.save_dir, 'checkpoint')
+        checkpoint_path = os.path.join(args.save_dir, 'finetune_checkpoint') # Load the FINETUNED model
         model = DistilBertForQuestionAnswering.from_pretrained(checkpoint_path)
         model.to(args.device)
         eval_dataset, eval_dict = get_dataset(args, args.eval_datasets, args.eval_dir, tokenizer, split_name)

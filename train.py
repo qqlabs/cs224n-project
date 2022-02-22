@@ -20,16 +20,22 @@ class Trainer():
         self.num_epochs = args.num_epochs
         self.device = args.device
         self.eval_every = args.eval_every
-        self.path = os.path.join(args.save_dir, 'checkpoint')
+        self.path = os.path.join(args.save_dir, 'checkpoint') # Where I store my model after training it on IID training
+        self.finetune_path = os.path.join(args.save_dir, 'finetune_checkpoint') # Where I store my model after finetuning it on OOD training
         self.num_visuals = args.num_visuals
         self.save_dir = args.save_dir
         self.log = log
         self.visualize_predictions = args.visualize_predictions
         if not os.path.exists(self.path):
             os.makedirs(self.path)
+        if not os.path.exists(self.finetune_path):
+            os.makedirs(self.finetune_path)
 
-    def save(self, model):
-        model.save_pretrained(self.path)
+    def save(self, model, stage):
+        if stage == "train": # Save in different checkpoint folders depending if I'm in train or finetuning stage
+            model.save_pretrained(self.path)
+        elif stage == "finetune":
+            model.save_pretrained(self.finetune_path)
     
     def evaluate(self, model, data_loader, data_dict, return_preds=False, split='validation'):
         device = self.device
@@ -70,16 +76,15 @@ class Trainer():
         results = OrderedDict(results_list)
         if return_preds:
             return preds, results
-        return results
-
-    def train(self, model, train_dataloader, eval_dataloader, val_dict):
+        return results 
+    
+    def train(self, model, train_dataloader, eval_dataloader, val_dict, best_scores, stage):
         device = self.device
         model.to(device)
         optim = AdamW(model.parameters(), lr=self.lr)
         global_idx = 0
-        best_scores = {'F1': -1.0, 'EM': -1.0}
         tbx = SummaryWriter(self.save_dir)
-
+        
         for epoch_num in range(self.num_epochs):
             self.log.info(f'Epoch: {epoch_num}')
             with torch.enable_grad(), tqdm(total=len(train_dataloader.dataset)) as progress_bar:
@@ -116,7 +121,7 @@ class Trainer():
                                            num_visuals=self.num_visuals)
                         if curr_score['F1'] >= best_scores['F1']:
                             best_scores = curr_score
-                            self.save(model)
+                            self.save(model, stage) # Where I save depends on which stage I'm in
                     global_idx += 1
         return best_scores
 
@@ -128,10 +133,14 @@ class AdversarialTrainer(Trainer):
         self.dis_lambda = args.dis_lambda
         self.create_discriminator()
         
-    def save(self, model):
-        torch.save(model.state_dict(), os.path.join(self.save_dir, 'checkpoint_QA')) # Save the QA model
-        torch.save(self.Discriminator.state_dict(), os.path.join(self.save_dir, 'checkpoint_discriminator')) # Saves my discriminator model in a discriminator subfolder
-            
+    def save(self, model, stage):
+        if stage == "train":
+            torch.save(model.state_dict(), os.path.join(self.save_dir, 'checkpoint_QA')) # Save the QA model
+            torch.save(self.Discriminator.state_dict(), os.path.join(self.save_dir, 'checkpoint_discriminator')) # Saves my discriminator model in a discriminator subfolder
+        elif stage == "finetune":
+            torch.save(model.state_dict(), os.path.join(self.save_dir, 'finetuned_checkpoint_QA')) # Save the QA model
+            torch.save(self.Discriminator.state_dict(), os.path.join(self.save_dir, 'finetuned_checkpoint_discriminator')) # Saves my discriminator model in a discriminator subfolder
+
     def create_discriminator(self):
         self.Discriminator = DomainDiscriminator(num_classes=self.n_train_datasets) # Create my discriminator
         self.dis_optim = AdamW(self.Discriminator.parameters(), lr=self.lr) # In this case I am using the same LR as normal QA model
@@ -148,12 +157,11 @@ class AdversarialTrainer(Trainer):
             loss = criterion(dis_log_probs, true_labels)
             return loss
 
-    def train(self, qa_model, train_dataloader, eval_dataloader, val_dict):
+    def train(self, qa_model, train_dataloader, eval_dataloader, val_dict, best_scores, stage):
         device = self.device
         qa_model.to(device)
         qa_optim = AdamW(qa_model.parameters(), lr=self.lr)
         global_idx = 0
-        best_scores = {'F1': -1.0, 'EM': -1.0}
         tbx = SummaryWriter(self.save_dir)
 
         for epoch_num in range(self.num_epochs):
@@ -250,7 +258,7 @@ class AdversarialTrainer(Trainer):
                                            num_visuals=self.num_visuals)
                         if curr_score['F1'] >= best_scores['F1']:
                             best_scores = curr_score
-                            self.save(qa_model)
+                            self.save(qa_model, stage)
                     global_idx += 1
         return best_scores      
     
