@@ -130,25 +130,24 @@ class AdversarialTrainer(Trainer):
         
     def save(self, model):
         torch.save(model.state_dict(), os.path.join(self.save_dir, 'checkpoint_QA')) # Save the QA model
-        torch.save(self.Discriminator.state_dict(), os.path.join(self.save_dir, 'checkpoint_discriminator')) # Saves my discriminator model in a discriminator subfolder lol
+        torch.save(self.Discriminator.state_dict(), os.path.join(self.save_dir, 'checkpoint_discriminator')) # Saves my discriminator model in a discriminator subfolder
             
     def create_discriminator(self):
         self.Discriminator = DomainDiscriminator(num_classes=self.n_train_datasets) # Create my discriminator
         self.dis_optim = AdamW(self.Discriminator.parameters(), lr=self.lr) # In this case I am using the same LR as normal QA model
         self.Discriminator.to(self.device)
-    
-    def discriminator_loss(self, dis_log_probs, true_labels):
-        criterion = torch.nn.NLLLoss()
-        loss = criterion(dis_log_probs, true_labels)
-        return loss
-        
-    # def domain_invariance_penalty(self, outputs):
-    #     hidden_states = hidden_states[:, 0] # CLS embeddings
-    #     log_prob = self.Discriminator(hidden_states) # Spits out my probabilities
-    #     targets = torch.ones_like(log_prob) * (1 / self.n_train_datasets) # Ok so this is what I would get if it was a simple uniform distribution
-    #     discriminator_loss = torch.nn.KLDivLoss(reduction="batchmean")(log_prob, targets)
-    #     return discriminator_loss
-    
+
+    def discriminator_loss(self, dis_log_probs, true_labels, loss_type):
+        if loss_type == "KLD": # This is the KL Divergence Loss
+            targets = torch.ones_like(dis_log_probs) * (1 / self.n_train_datasets) # Simple uniform distribution across number of training datasets
+            loss = torch.nn.KLDivLoss(reduction="batchmean")(dis_log_probs, targets)
+            return loss
+
+        elif loss_type == "NLL": # This is the negative log likelihood loss
+            criterion = torch.nn.NLLLoss()
+            loss = criterion(dis_log_probs, true_labels)
+            return loss
+
     def train(self, qa_model, train_dataloader, eval_dataloader, val_dict):
         device = self.device
         qa_model.to(device)
@@ -194,15 +193,14 @@ class AdversarialTrainer(Trainer):
                     
 
                     # QA TRAINING WITH DISCRIMINATOR ADVERSAIRAL LOSS
-                    # we subtract the discriminator loss to penalize the qa_loss
-                    # since higher loss is "better" (negative loss)
+                    # we add the KL adversarial loss to the normal CE loss
                     
-                    # Call discriminator again as an adversarial loss
+                    # Call discriminator to compute the KL adversarial loss
                     adv_output = self.Discriminator(qa_hidden_input)
-                    adv_loss = self.discriminator_loss(adv_output, domain_id)
+                    KL_adv_loss = self.discriminator_loss(adv_output, domain_id, "KLD")
 
                     # This is the new loss that penalizes the QA loss if adv_loss does well
-                    total_loss = qa_loss - self.dis_lambda*adv_loss 
+                    total_loss = qa_loss + self.dis_lambda*KL_adv_loss
                     total_loss.backward()
                     
                     qa_optim.step()
@@ -217,7 +215,7 @@ class AdversarialTrainer(Trainer):
                     dis_output = self.Discriminator(qa_hidden_input.detach())
                     
                     # Get Discriminator Loss
-                    dis_loss = self.discriminator_loss(dis_output, domain_id)
+                    dis_loss = self.discriminator_loss(dis_output, domain_id, "NLL")
                     dis_loss = dis_loss.mean() # average the loss across categories?
                     dis_loss.backward() # Backward propagate
                     self.dis_optim.step() # Take a step
