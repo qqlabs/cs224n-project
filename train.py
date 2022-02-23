@@ -132,14 +132,26 @@ class AdversarialTrainer(Trainer):
         self.n_train_datasets = len(args.train_datasets.split(",")) # This gives me the number of training datasets I have...
         self.dis_lambda = args.dis_lambda
         self.create_discriminator()
+
+        # self.qa_checkpoint_path = os.path.join(self.path, 'QA') # Where I store my model after training it on IID training
+        # self.discrim_checkpoint_path = os.path.join(self.path, 'Discriminator') # Where I store my model after training it on IID training
         
-    def save(self, model, stage):
-        if stage == "train":
-            torch.save(model.state_dict(), os.path.join(self.save_dir, 'checkpoint_QA')) # Save the QA model
-            torch.save(self.Discriminator.state_dict(), os.path.join(self.save_dir, 'checkpoint_discriminator')) # Saves my discriminator model in a discriminator subfolder
-        elif stage == "finetune":
-            torch.save(model.state_dict(), os.path.join(self.save_dir, 'finetuned_checkpoint_QA')) # Save the QA model
-            torch.save(self.Discriminator.state_dict(), os.path.join(self.save_dir, 'finetuned_checkpoint_discriminator')) # Saves my discriminator model in a discriminator subfolder
+    #     if not os.path.exists(self.qa_checkpoint_path):
+    #         os.makedirs(self.qa_checkpoint_path)
+    #     if not os.path.exists(self.discrim_checkpoint_path):
+    #         os.makedirs(self.discrim_checkpoint_path)
+        
+    # def save(self, model, stage):
+    #     if stage == "train":
+    #         model.save_pretrained(self.qa_checkpoint_path)
+    #         self.Discriminator.save_pretrained(self.qa_discrim_checkpoint_path)
+
+
+
+    #         torch.save(model.state_dict(), self.qa_checkpoint_path) # Save the QA model
+    #         torch.save(self.Discriminator.state_dict(), self.discrim_checkpoint_path) # Saves my discriminator model in a discriminator subfolder
+    #     elif stage == "finetune":
+    #         torch.save(model.state_dict(), self.finetune_path) # Save the QA model
 
     def create_discriminator(self):
         self.Discriminator = DomainDiscriminator(num_classes=self.n_train_datasets) # Create my discriminator
@@ -209,13 +221,14 @@ class AdversarialTrainer(Trainer):
 
                     # This is the new loss that penalizes the QA loss if adv_loss does well
                     total_loss = qa_loss + self.dis_lambda*KL_adv_loss
+                    total_loss = total_loss.mean()
                     total_loss.backward()
                     
                     qa_optim.step()
                     qa_optim.zero_grad()
                     
                     # DISCRIMINATOR TRAINING
-                    # self.dis_optim.zero_grad() # Set to 0 grad before commencing training
+                    self.dis_optim.zero_grad() # Set to 0 grad before commencing training
 
                     # Predict with Discriminator
                     # This time, need to detach so we don't propagate the hidden states
@@ -224,7 +237,7 @@ class AdversarialTrainer(Trainer):
                     
                     # Get Discriminator Loss
                     dis_loss = self.discriminator_loss(dis_output, domain_id, "NLL")
-                    dis_loss = dis_loss.mean() # average the loss across categories?
+                    dis_loss = dis_loss.mean() # average the loss across batch
                     dis_loss.backward() # Backward propagate
                     self.dis_optim.step() # Take a step
                     self.dis_optim.zero_grad() # Reset to 0 grad

@@ -121,23 +121,21 @@ def main():
         log.info("Model loaded from " + checkpoint_path)
 
         # Load my last set of best scores
-        best_scores = pickle.load(open(args.save_dir + "/best_scores.p", "rb"))
-        log.info("Previous best score loaded!")
-        log.info(str(best_scores))
+        # best_scores = pickle.load(open(args.save_dir + "/best_scores.p", "rb"))
+        # log.info("Previous best score loaded!")
+        # log.info(str(best_scores))
 
-        # Choose between normal QA model or QA with adversarial
-        if args.adv_train:
-            trainer = AdversarialTrainer(args, log)
-        else:
-            trainer = Trainer(args, log)
+        # Choose between normal QA model or QA with adversarial       
+        trainer = Trainer(args, log)
 
         # Now, finetune my model
+        best_scores = {'F1': -1.0, 'EM': -1.0}    
         best_scores_finetune = trainer.train(model, OOD_train_loader, OOD_val_loader, OOD_val_dict, best_scores, "finetune")
         # FYI: The best scores that I load into here is the final best scores from the first part of the training
         # I.e. I will not update my model's parameters unless it beats the previous results
 
         # Save my best score
-        pickle.dump(best_scores_finetune, open(args.save_dir + "finetuned_best_scores.p", "wb"))
+        # pickle.dump(best_scores_finetune, open(args.save_dir + "finetuned_best_scores.p", "wb"))
     
     if args.do_eval:
         args.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
@@ -157,13 +155,14 @@ def main():
         results_str = ', '.join(f'{k}: {v:05.2f}' for k, v in eval_scores.items())
         log.info(f'Eval {results_str}')
         # Write submission file
-        sub_path = os.path.join(args.save_dir, split_name + '_' + args.sub_file)
-        log.info(f'Writing submission file to {sub_path}...')
-        with open(sub_path, 'w', newline='', encoding='utf-8') as csv_fh:
-            csv_writer = csv.writer(csv_fh, delimiter=',')
-            csv_writer.writerow(['Id', 'Predicted'])
-            for uuid in sorted(eval_preds):
-                csv_writer.writerow([uuid, eval_preds[uuid]])
+        if args.sub_file != "":
+            sub_path = os.path.join(args.save_dir, split_name + '_' + args.sub_file)            
+            log.info(f'Writing submission file to {sub_path}...')
+            with open(sub_path, 'w', newline='', encoding='utf-8') as csv_fh:
+                csv_writer = csv.writer(csv_fh, delimiter=',')
+                csv_writer.writerow(['Id', 'Predicted'])
+                for uuid in sorted(eval_preds):
+                    csv_writer.writerow([uuid, eval_preds[uuid]])
 
 
 if __name__ == '__main__':
