@@ -2,6 +2,7 @@ import os
 import csv
 import json
 import util
+import pickle
 
 from args import get_train_test_args
 
@@ -60,8 +61,14 @@ def main():
             tmp_train_dataset, _ = get_dataset(args, dataset_name, args.train_dir, tokenizer, 'train', domain_id)
             train_dataset.append(tmp_train_dataset)
 
+        # Concat my datasets together
+        train_set = ConcatDataset(train_dataset)
+        # This allows you to take a smaller subset of the training dataset if you want to quickly test out stuff
+        # The default value for sample_proportion is 1 (i.e. you train the model on the entire training dataset)
+        sample_index = list(range(0, len(train_set), int(1/args.sample_proportion)))        
+        train_set = torch.utils.data.Subset(train_set, sample_index) # Grab my subset
 
-        train_loader = DataLoader(ConcatDataset(train_dataset),
+        train_loader = DataLoader(train_set,
                                 batch_size=args.batch_size,
                                 # sampler=RandomSampler(train_dataset),
                                 shuffle=True)
@@ -72,13 +79,70 @@ def main():
         val_loader = DataLoader(val_dataset,
                                 batch_size=args.batch_size,
                                 sampler=SequentialSampler(val_dataset))
-        best_scores = trainer.train(model, train_loader, val_loader, val_dict)
+
+        # Train on IID datasets
+        best_scores = {'F1': -1.0, 'EM': -1.0}                        
+        best_scores = trainer.train(model, train_loader, val_loader, val_dict, best_scores, "train")
+
+        # Save my best score
+        pickle.dump(best_scores, open(args.save_dir + "/best_scores.p", "wb"))
+
+    if args.do_finetune:
+        log = util.get_logger(args.save_dir, 'log_finetune')
+        log.info(f'Args: {json.dumps(vars(args), indent=4, sort_keys=True)}')
+        args.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+
+        # Now, prepare my OOD datasets
+        log.info("Preparing OOD Training Data...")
+        OOD_train_dataset = []
+
+        for domain_id, dataset_name in enumerate(args.OOD_train_datasets.split(',')):
+            create_cache(args, dataset_name, args.OOD_train_dir, tokenizer, 'train', domain_id)
+ 
+        for domain_id, dataset_name in enumerate(args.OOD_train_datasets.split(',')):
+            tmp_train_dataset, _ = get_dataset(args, dataset_name, args.OOD_train_dir, tokenizer, 'train', domain_id)
+            OOD_train_dataset.append(tmp_train_dataset)
+
+        OOD_train_loader = DataLoader(ConcatDataset(OOD_train_dataset),
+                                batch_size=args.batch_size,
+                                # sampler=RandomSampler(train_dataset),
+                                shuffle=True)
+
+        log.info("Preparing OOD Validation Data...")
+        OOD_val_dataset, OOD_val_dict = get_dataset(args, args.OOD_train_datasets, args.OOD_val_dir, tokenizer, 'val')
+        
+        OOD_val_loader = DataLoader(OOD_val_dataset,
+                                batch_size=args.batch_size,
+                                sampler=SequentialSampler(OOD_val_dataset))   
+
+        # Load my last checkpoint
+        checkpoint_path = os.path.join(args.save_dir, 'checkpoint') # Find my checkpoint
+        model = DistilBertForQuestionAnswering.from_pretrained(checkpoint_path) # Load checkpoint
+        log.info("Model loaded from " + checkpoint_path)
+
+        # Load my last set of best scores
+        # best_scores = pickle.load(open(args.save_dir + "/best_scores.p", "rb"))
+        # log.info("Previous best score loaded!")
+        # log.info(str(best_scores))
+
+        # Choose between normal QA model or QA with adversarial       
+        trainer = Trainer(args, log)
+
+        # Now, finetune my model
+        best_scores = {'F1': -1.0, 'EM': -1.0}    
+        best_scores_finetune = trainer.train(model, OOD_train_loader, OOD_val_loader, OOD_val_dict, best_scores, "finetune")
+        # FYI: The best scores that I load into here is the final best scores from the first part of the training
+        # I.e. I will not update my model's parameters unless it beats the previous results
+
+        # Save my best score
+        # pickle.dump(best_scores_finetune, open(args.save_dir + "finetuned_best_scores.p", "wb"))
+    
     if args.do_eval:
         args.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         split_name = 'test' if 'test' in args.eval_dir else 'validation'
         log = util.get_logger(args.save_dir, f'log_{split_name}')
         trainer = Trainer(args, log)
-        checkpoint_path = os.path.join(args.save_dir, 'checkpoint')
+        checkpoint_path = os.path.join(args.save_dir, 'finetune_checkpoint') # Load the FINETUNED model
         model = DistilBertForQuestionAnswering.from_pretrained(checkpoint_path)
         model.to(args.device)
         eval_dataset, eval_dict = get_dataset(args, args.eval_datasets, args.eval_dir, tokenizer, split_name)
@@ -91,13 +155,14 @@ def main():
         results_str = ', '.join(f'{k}: {v:05.2f}' for k, v in eval_scores.items())
         log.info(f'Eval {results_str}')
         # Write submission file
-        sub_path = os.path.join(args.save_dir, split_name + '_' + args.sub_file)
-        log.info(f'Writing submission file to {sub_path}...')
-        with open(sub_path, 'w', newline='', encoding='utf-8') as csv_fh:
-            csv_writer = csv.writer(csv_fh, delimiter=',')
-            csv_writer.writerow(['Id', 'Predicted'])
-            for uuid in sorted(eval_preds):
-                csv_writer.writerow([uuid, eval_preds[uuid]])
+        if args.sub_file != "":
+            sub_path = os.path.join(args.save_dir, split_name + '_' + args.sub_file)            
+            log.info(f'Writing submission file to {sub_path}...')
+            with open(sub_path, 'w', newline='', encoding='utf-8') as csv_fh:
+                csv_writer = csv.writer(csv_fh, delimiter=',')
+                csv_writer.writerow(['Id', 'Predicted'])
+                for uuid in sorted(eval_preds):
+                    csv_writer.writerow([uuid, eval_preds[uuid]])
 
 
 if __name__ == '__main__':
