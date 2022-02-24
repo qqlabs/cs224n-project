@@ -145,15 +145,26 @@ def main():
         checkpoint_path = os.path.join(args.save_dir, 'finetune_checkpoint') # Load the FINETUNED model
         model = DistilBertForQuestionAnswering.from_pretrained(checkpoint_path)
         model.to(args.device)
-        eval_dataset, eval_dict = get_dataset(args, args.eval_datasets, args.eval_dir, tokenizer, split_name)
-        eval_loader = DataLoader(eval_dataset,
-                                 batch_size=args.batch_size,
-                                 sampler=SequentialSampler(eval_dataset))
-        eval_preds, eval_scores = trainer.evaluate(model, eval_loader,
-                                                   eval_dict, return_preds=True,
-                                                   split=split_name)
-        results_str = ', '.join(f'{k}: {v:05.2f}' for k, v in eval_scores.items())
-        log.info(f'Eval {results_str}')
+
+        # evaluate on every dataset in eval_dir
+        eval_datasets = [f for f in os.listdir(args.eval_dir) if ".pt" not in f]
+        combined_eval_data = ','.join(map(str, eval_datasets)) # also eval over all combined datasets
+        eval_datasets.append(combined_eval_data)
+
+        for dataset in eval_datasets:
+            eval_dataset, eval_dict = get_dataset(args, dataset, args.eval_dir, tokenizer, split_name)
+            eval_loader = DataLoader(eval_dataset,
+                                    batch_size=args.batch_size,
+                                    sampler=SequentialSampler(eval_dataset))
+            eval_preds, eval_scores = trainer.evaluate(model, eval_loader,
+                                                    eval_dict, return_preds=True,
+                                                    split=split_name)
+            results_str = ', '.join(f'{k}: {v:05.2f}' for k, v in eval_scores.items())
+
+            if dataset == combined_eval_data:
+                log.info(f'Combined Eval {results_str}')
+            else:
+                log.info(f'{dataset} Eval {results_str}')
         # Write submission file
         if args.sub_file != "":
             sub_path = os.path.join(args.save_dir, split_name + '_' + args.sub_file)            
