@@ -129,8 +129,11 @@ class Trainer():
 class AdversarialTrainer(Trainer):
     def __init__(self, args, log):
         super(AdversarialTrainer, self).__init__(args, log)
-        self.n_train_datasets = len(args.train_datasets.split(",")) # This gives me the number of training datasets I have...
         self.dis_lambda = args.dis_lambda
+        if args.binary_align:
+            self.num_domains = 2
+        else:
+            self.num_domains = len(args.train_datasets.split(",")) + len(args.OOD_train_datasets.split(","))  # This gives me the number of training datasets I have...
         self.create_discriminator()
 
         # self.qa_checkpoint_path = os.path.join(self.path, 'QA') # Where I store my model after training it on IID training
@@ -154,13 +157,13 @@ class AdversarialTrainer(Trainer):
     #         torch.save(model.state_dict(), self.finetune_path) # Save the QA model
 
     def create_discriminator(self):
-        self.Discriminator = DomainDiscriminator(num_classes=self.n_train_datasets) # Create my discriminator
+        self.Discriminator = DomainDiscriminator(num_classes=self.num_domains)
         self.dis_optim = AdamW(self.Discriminator.parameters(), lr=self.lr) # In this case I am using the same LR as normal QA model
         self.Discriminator.to(self.device)
 
     def discriminator_loss(self, dis_log_probs, true_labels, loss_type):
         if loss_type == "KLD": # This is the KL Divergence Loss
-            targets = torch.ones_like(dis_log_probs) * (1 / self.n_train_datasets) # Simple uniform distribution across number of training datasets
+            targets = torch.ones_like(dis_log_probs) * (1 / self.num_domains) # Simple uniform distribution across number of training datasets
             loss = torch.nn.KLDivLoss(reduction="batchmean")(dis_log_probs, targets)
             return loss
 
@@ -238,6 +241,10 @@ class AdversarialTrainer(Trainer):
                     # Get Discriminator Loss
                     dis_loss = self.discriminator_loss(dis_output, domain_id, "NLL")
                     dis_loss = dis_loss.mean() # average the loss across batch
+                    # print(dis_output)
+                    # print(dis_output.shape)
+                    # print(domain_id)
+                    # print(domain_id.shape)
                     dis_loss.backward() # Backward propagate
                     self.dis_optim.step() # Take a step
                     self.dis_optim.zero_grad() # Reset to 0 grad

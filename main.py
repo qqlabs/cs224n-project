@@ -44,11 +44,16 @@ def main():
         else:
             trainer = Trainer(args, log)
             
-        train_dataset = []
-
         # Create cache by tokenizing, don't load anything so we use less memory
+        # Note, here the domain ID will be from 0 to 2
         for domain_id, dataset_name in enumerate(args.train_datasets.split(',')):
             create_cache(args, dataset_name, args.train_dir, tokenizer, 'train', domain_id)
+        
+        num_IID_dataset = len(args.train_datasets.split(','))
+        
+        # For this, the domain ID should go from 3 to 5
+        for domain_id, dataset_name in enumerate(args.OOD_train_datasets.split(',')):
+            create_cache(args, dataset_name, args.OOD_train_dir, tokenizer, 'train', domain_id+num_IID_dataset)
 
         # We need to include the domain_id in our training data since the gan needs the 
         # true domain_id to calculate loss.
@@ -57,9 +62,26 @@ def main():
 
         # We only include domain_id in training data since the gan only operates on the
         # training stage.
-        for domain_id, dataset_name in enumerate(args.train_datasets.split(',')):
-            tmp_train_dataset, _ = get_dataset(args, dataset_name, args.train_dir, tokenizer, 'train', domain_id)
-            train_dataset.append(tmp_train_dataset)
+        # BINARY DOMAIN ALIGNMENT:
+        train_dataset = []
+
+        if args.binary_align: # Domain ID is binary
+            for dataset_name in args.train_datasets.split(','):
+                tmp_train_dataset, _ = get_dataset(args, dataset_name, args.train_dir, tokenizer, 'train', 0)
+                train_dataset.append(tmp_train_dataset)
+
+            for dataset_name in args.OOD_train_datasets.split(','):
+                tmp_train_dataset, _ = get_dataset(args, dataset_name, args.OOD_train_dir, tokenizer, 'train', 1)
+                train_dataset.append(tmp_train_dataset)
+        
+        else: # Domain ID takes on 6 possible values
+            for domain_id, dataset_name in enumerate(args.train_datasets.split(',')):
+                tmp_train_dataset, _ = get_dataset(args, dataset_name, args.train_dir, tokenizer, 'train', domain_id)
+                train_dataset.append(tmp_train_dataset)
+
+            for domain_id, dataset_name in enumerate(args.OOD_train_datasets.split(',')):
+                tmp_train_dataset, _ = get_dataset(args, dataset_name, args.OOD_train_dir, tokenizer, 'train', domain_id+num_IID_dataset)
+                train_dataset.append(tmp_train_dataset)           
 
         # Concat my datasets together
         train_set = ConcatDataset(train_dataset)
@@ -74,6 +96,8 @@ def main():
                                 shuffle=True)
 
         log.info("Preparing Validation Data...")
+
+        # Grab IID validation datasets
         val_dataset, val_dict = get_dataset(args, args.train_datasets, args.val_dir, tokenizer, 'val')
         
         val_loader = DataLoader(val_dataset,

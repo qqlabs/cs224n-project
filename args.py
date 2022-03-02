@@ -6,6 +6,7 @@ def get_train_test_args():
     parser.add_argument('--adv-train', action='store_true') # Adversarial
     parser.add_argument('--dis-lambda', type=float, default=1e-2) # % of penalty that adversarial discriminator has on qa loss
     parser.add_argument('--batch-size', type=int, default=16)
+    parser.add_argument('--binary-align', action='store_true') # Binary domain alignment (if not used, then default will be multi-domain alignment)
     parser.add_argument('--num-epochs', type=int, default=3)
     parser.add_argument('--lr', type=float, default=3e-5)
     parser.add_argument('--num-visuals', type=int, default=10)
