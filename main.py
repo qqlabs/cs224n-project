@@ -44,56 +44,65 @@ def main():
         else:
             trainer = Trainer(args, log)
 
-        if args.binary_align: # Domain ID is binary
-            # Create cache by tokenizing, don't load anything so we use less memory
-            # Note, here the domain ID will be 0
-            for dataset_name in args.train_datasets.split(','):
-                create_cache(args, dataset_name, args.train_dir, tokenizer, 'train', 0)                    
-            # For this, the domain ID will be 1
-            for dataset_name in args.OOD_train_datasets.split(','):
-                create_cache(args, dataset_name, args.OOD_train_dir, tokenizer, 'train', 1)                       
+        if args.combined: # Train on IID + OOD
+            if args.binary_align: # Domain ID is binary
+                # Create cache by tokenizing, don't load anything so we use less memory
+                # Note, here the domain ID will be 0
+                for dataset_name in args.train_datasets.split(','):
+                    create_cache(args, dataset_name, args.train_dir, tokenizer, 'train', 0)                    
+                # For this, the domain ID will be 1
+                for dataset_name in args.OOD_train_datasets.split(','):
+                    create_cache(args, dataset_name, args.OOD_train_dir, tokenizer, 'train', 1)                       
 
-            # We need to include the domain_id in our training data since the gan needs the 
-            # true domain_id to calculate loss.
-            # We will assign each domain_id based on the order they are listed in the
-            # args for training datasets. This will remain fixed.
+                # We need to include the domain_id in our training data since the gan needs the 
+                # true domain_id to calculate loss.
+                # We will assign each domain_id based on the order they are listed in the
+                # args for training datasets. This will remain fixed.
 
-            # We only include domain_id in training data since the gan only operates on the
-            # training stage.
-            train_dataset = []
-            for dataset_name in args.train_datasets.split(','):
-                tmp_train_dataset, _ = get_dataset(args, dataset_name, args.train_dir, tokenizer, 'train', 0)
-                train_dataset.append(tmp_train_dataset)
+                # We only include domain_id in training data since the gan only operates on the
+                # training stage.
+                train_dataset = []
+                for dataset_name in args.train_datasets.split(','):
+                    tmp_train_dataset, _ = get_dataset(args, dataset_name, args.train_dir, tokenizer, 'train', 0)
+                    train_dataset.append(tmp_train_dataset)
 
-            for dataset_name in args.OOD_train_datasets.split(','):
-                tmp_train_dataset, _ = get_dataset(args, dataset_name, args.OOD_train_dir, tokenizer, 'train', 1)
-                train_dataset.append(tmp_train_dataset)
+                for dataset_name in args.OOD_train_datasets.split(','):
+                    tmp_train_dataset, _ = get_dataset(args, dataset_name, args.OOD_train_dir, tokenizer, 'train', 1)
+                    train_dataset.append(tmp_train_dataset)
 
-        else:
-            # Create cache by tokenizing, don't load anything so we use less memory
-            # Note, here the domain ID will be from 0 to 2
+            else:
+                # Create cache by tokenizing, don't load anything so we use less memory
+                # Note, here the domain ID will be from 0 to 2
+                for domain_id, dataset_name in enumerate(args.train_datasets.split(',')):
+                    create_cache(args, dataset_name, args.train_dir, tokenizer, 'train', domain_id)            
+                num_IID_dataset = len(args.train_datasets.split(','))            
+                # For this, the domain ID should go from 3 to 5
+                for domain_id, dataset_name in enumerate(args.OOD_train_datasets.split(',')):
+                    create_cache(args, dataset_name, args.OOD_train_dir, tokenizer, 'train', domain_id+num_IID_dataset)                       
+
+                # We need to include the domain_id in our training data since the gan needs the 
+                # true domain_id to calculate loss.
+                # We will assign each domain_id based on the order they are listed in the
+                # args for training datasets. This will remain fixed.
+
+                # We only include domain_id in training data since the gan only operates on the
+                # training stage.
+                train_dataset = []
+
+                for domain_id, dataset_name in enumerate(args.train_datasets.split(',')):
+                    tmp_train_dataset, _ = get_dataset(args, dataset_name, args.train_dir, tokenizer, 'train', domain_id)
+                    train_dataset.append(tmp_train_dataset)
+
+                for domain_id, dataset_name in enumerate(args.OOD_train_datasets.split(',')):
+                    tmp_train_dataset, _ = get_dataset(args, dataset_name, args.OOD_train_dir, tokenizer, 'train', domain_id+num_IID_dataset)
+                    train_dataset.append(tmp_train_dataset)
+
+        else: # Train on only IID
             for domain_id, dataset_name in enumerate(args.train_datasets.split(',')):
-                create_cache(args, dataset_name, args.train_dir, tokenizer, 'train', domain_id)            
-            num_IID_dataset = len(args.train_datasets.split(','))            
-            # For this, the domain ID should go from 3 to 5
-            for domain_id, dataset_name in enumerate(args.OOD_train_datasets.split(',')):
-                create_cache(args, dataset_name, args.OOD_train_dir, tokenizer, 'train', domain_id+num_IID_dataset)                       
-
-            # We need to include the domain_id in our training data since the gan needs the 
-            # true domain_id to calculate loss.
-            # We will assign each domain_id based on the order they are listed in the
-            # args for training datasets. This will remain fixed.
-
-            # We only include domain_id in training data since the gan only operates on the
-            # training stage.
+                create_cache(args, dataset_name, args.train_dir, tokenizer, 'train', domain_id)
             train_dataset = []
-
             for domain_id, dataset_name in enumerate(args.train_datasets.split(',')):
                 tmp_train_dataset, _ = get_dataset(args, dataset_name, args.train_dir, tokenizer, 'train', domain_id)
-                train_dataset.append(tmp_train_dataset)
-
-            for domain_id, dataset_name in enumerate(args.OOD_train_datasets.split(',')):
-                tmp_train_dataset, _ = get_dataset(args, dataset_name, args.OOD_train_dir, tokenizer, 'train', domain_id+num_IID_dataset)
                 train_dataset.append(tmp_train_dataset)           
 
         # Concat my datasets together

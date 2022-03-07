@@ -4,6 +4,7 @@ import os
 import logging
 import pickle
 import string
+import math
 import re
 from pathlib import Path
 from collections import Counter, OrderedDict, defaultdict as ddict
@@ -11,6 +12,12 @@ import torch
 import numpy as np
 from tqdm import tqdm
 from torch.utils.data import Dataset
+
+def kl_coef(i):
+    # coef for KL annealing
+    # reaches 1 at i = 22000
+    # https://github.com/kefirski/pytorch_RVAE/blob/master/utils/functional.py
+    return (math.tanh((i - 3500) / 1000) + 1) / 2 
 
 def set_seed(seed):
     random.seed(seed)
