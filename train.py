@@ -215,7 +215,7 @@ class AdversarialTrainer(Trainer):
                     self.dis_optim.zero_grad() # Set to 0 grad before commencing training
 
                     # Impose W Regularization if needed
-                    # This clips our weights
+                    # This clips our weights to enforce gradient constraint for smoother training
                     if self.w_reg:
                         for p in self.Discriminator.parameters():
                             p.data.clamp_(-0.01, 0.01)
