@@ -135,26 +135,7 @@ class AdversarialTrainer(Trainer):
         else:
             self.num_domains = len(args.train_datasets.split(",")) + len(args.OOD_train_datasets.split(","))  # This gives me the number of training datasets I have...
         self.create_discriminator()
-
-        # self.qa_checkpoint_path = os.path.join(self.path, 'QA') # Where I store my model after training it on IID training
-        # self.discrim_checkpoint_path = os.path.join(self.path, 'Discriminator') # Where I store my model after training it on IID training
-        
-    #     if not os.path.exists(self.qa_checkpoint_path):
-    #         os.makedirs(self.qa_checkpoint_path)
-    #     if not os.path.exists(self.discrim_checkpoint_path):
-    #         os.makedirs(self.discrim_checkpoint_path)
-        
-    # def save(self, model, stage):
-    #     if stage == "train":
-    #         model.save_pretrained(self.qa_checkpoint_path)
-    #         self.Discriminator.save_pretrained(self.qa_discrim_checkpoint_path)
-
-
-
-    #         torch.save(model.state_dict(), self.qa_checkpoint_path) # Save the QA model
-    #         torch.save(self.Discriminator.state_dict(), self.discrim_checkpoint_path) # Saves my discriminator model in a discriminator subfolder
-    #     elif stage == "finetune":
-    #         torch.save(model.state_dict(), self.finetune_path) # Save the QA model
+        self.w_reg = args.w_reg
 
     def create_discriminator(self):
         self.Discriminator = DomainDiscriminator(num_classes=self.num_domains)
@@ -232,6 +213,12 @@ class AdversarialTrainer(Trainer):
                     
                     # DISCRIMINATOR TRAINING
                     self.dis_optim.zero_grad() # Set to 0 grad before commencing training
+
+                    # Impose W Regularization if needed
+                    # This clips our weights
+                    if self.w_reg:
+                        for p in self.Discriminator.parameters():
+                            p.data.clamp_(-0.01, 0.01)
 
                     # Predict with Discriminator
                     # This time, need to detach so we don't propagate the hidden states

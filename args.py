@@ -5,6 +5,7 @@ def get_train_test_args():
     parser.add_argument('--sample-proportion', type=float, default=1.0) # Range between 0 and 1. If you want to use 20% of the training dataset, set this value to be 0.2
     parser.add_argument('--adv-train', action='store_true') # Adversarial
     parser.add_argument('--dis-lambda', type=float, default=1e-2) # % of penalty that adversarial discriminator has on qa loss
+    parser.add_argument('--w-reg', action='store_true') # Imposes W regularization on the discriminator loss function
     parser.add_argument('--batch-size', type=int, default=16)
     parser.add_argument('--binary-align', action='store_true') # Binary domain alignment (if not used, then default will be multi-domain alignment)
     parser.add_argument('--num-epochs', type=int, default=3)
