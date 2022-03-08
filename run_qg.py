@@ -200,9 +200,16 @@ def combine_qas(filepath):
         while (i + 1 < len(sort_idx)):
             if (dataset_dict['context'][sort_idx[i+1]] != dataset_dict['context'][sort_idx[i]]):
                 break
-            qas.append({'question': dataset_dict['question'][sort_idx[i]], 'id': dataset_dict['id'][sort_idx[i]], 'answers': [dataset_dict['answer'][sort_idx[i]]]})
+            # reiterate through answers to format output properly
+            answers = []
+            for a_idx in range(len(dataset_dict['answer'][sort_idx[i]]['answer_start'])):
+                answers.append({'answer_start':dataset_dict['answer'][sort_idx[i]]['answer_start'][a_idx], 'text': dataset_dict['answer'][sort_idx[i]]['text'][a_idx]})
+            qas.append({'question': dataset_dict['question'][sort_idx[i]], 'id': dataset_dict['id'][sort_idx[i]], 'answers': answers})
             i += 1
-        qas.append({'question': dataset_dict['question'][sort_idx[i]], 'id': dataset_dict['id'][sort_idx[i]], 'answers': [dataset_dict['answer'][sort_idx[i]]]})
+        answers = []
+        for a_idx in range(len(dataset_dict['answer'][sort_idx[i]]['answer_start'])):
+            answers.append({'answer_start':dataset_dict['answer'][sort_idx[i]]['answer_start'][a_idx], 'text': dataset_dict['answer'][sort_idx[i]]['text'][a_idx]})
+        qas.append({'question': dataset_dict['question'][sort_idx[i]], 'id': dataset_dict['id'][sort_idx[i]], 'answers': answers})
         i += 1
         json_entry = {
             "title":title,
