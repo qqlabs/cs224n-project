@@ -15,7 +15,9 @@
                 // "--adv-train", 
                 // "--run-name", 
                 // "domain_gan"
-                "--synth-file",
+
+                // "--synth-file",
+                "--combine",
                 "datasets/oodomain_train/duorc"
             ]
         }

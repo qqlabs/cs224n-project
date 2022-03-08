@@ -8,6 +8,7 @@ from typing import Dict, List, Optional
 
 import numpy as np
 import torch
+import random
 
 from transformers import (
     AutoModelForSeq2SeqLM,
@@ -128,7 +129,12 @@ def gen_qas(synth_file):
 
     # generate qa pairs for each context
     # TODO remove duplicate questions
+    total_chunks = len(chunked_context['context'])
+
+    total_questions = set()
     for idx, context in enumerate(chunked_context['context']):
+        # if random.random() >= 0.01:
+        #     continue
         # return qa pairs
         qas = nlp(context)
         if len(qas) == 0:
@@ -138,6 +144,9 @@ def gen_qas(synth_file):
         # run qa model to see if it returns same as qa pair
         qas_filtered = []
         for qa in qas:
+            if qa['question'] in total_questions:
+                continue
+            total_questions.add(qa['question'])
             num_questions += 1
             qa_ans = nlp({'question': qa['question'],
                 'context': context
@@ -147,6 +156,9 @@ def gen_qas(synth_file):
                 continue
             qas_filtered.append(qa)
 
+        # limit to 2 questions
+        # qas_filtered = random.sample(qas_filtered, min(2, len(qas_filtered)))
+
         full_context = chunked_context['full_context'][idx]
         title = full_context[:52]
         json_entry = {
@@ -154,6 +166,8 @@ def gen_qas(synth_file):
             "paragraphs":[{"context": full_context, "qas": qas_filtered}] 
         }
         json_output['data'].append(json_entry)
+
+        print(f'{idx} out of {total_chunks}')
     
     print(f'Num Questions: {num_questions}')
     print(f'Num Mismatch: {num_mismatch}')
@@ -162,10 +176,48 @@ def gen_qas(synth_file):
     with open(synth_file + '_synth', 'w') as outfile:
         json.dump(json_output, outfile)
         print(f'Synthetic Examples written to {synth_file}_synth')
+    
+    combine_qas(synth_file)
+
+def combine_qas(filepath):
+    dataset_dict = read_squad(filepath)
+    synth_dict = read_squad(filepath + '_synth')
+
+    dataset_dict['question'].extend(synth_dict['question'])
+    dataset_dict['context'].extend(synth_dict['context'])
+    dataset_dict['id'].extend(synth_dict['id'])
+    dataset_dict['answer'].extend(synth_dict['answer'])
+
+    json_output = {'data':[]}
+
+    sort_idx = sorted(range(len(dataset_dict['context'])), key=dataset_dict['context'].__getitem__)
+
+    i = 0
+    while i < len(sort_idx):
+        full_context = dataset_dict['context'][sort_idx[i]]
+        title = full_context[:52]
+        qas = []
+        while (i + 1 < len(sort_idx)):
+            if (dataset_dict['context'][sort_idx[i+1]] != dataset_dict['context'][sort_idx[i]]):
+                break
+            qas.append({'question': dataset_dict['question'][sort_idx[i]], 'id': dataset_dict['id'][sort_idx[i]], 'answers': [dataset_dict['answer'][sort_idx[i]]]})
+            i += 1
+        qas.append({'question': dataset_dict['question'][sort_idx[i]], 'id': dataset_dict['id'][sort_idx[i]], 'answers': [dataset_dict['answer'][sort_idx[i]]]})
+        i += 1
+        json_entry = {
+            "title":title,
+            "paragraphs":[{"context": full_context, "qas": qas}] 
+        }
+        json_output['data'].append(json_entry)
+
+    with open(filepath + '_combined', 'w') as outfile:
+        json.dump(json_output, outfile)
+        print(f'Combined {filepath} with synth data.')
 
 def get_action_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--synth-file', type=str, default='')
+    parser.add_argument('--combine', type=str, default='')
     args = parser.parse_args()
     return args
 
@@ -176,6 +228,10 @@ def main(args_file=None):
     if action_args.synth_file != '':
         print(f'Generating synthetic question answer pairs for {action_args.synth_file}')
         gen_qas(action_args.synth_file)
+        return
+    if action_args.combine != '':
+        print(f'Combining {action_args.combine} with synth data')
+        combine_qas(action_args.combine)
         return
 
     ## QG Model Training 
