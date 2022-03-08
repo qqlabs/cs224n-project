@@ -9,6 +9,7 @@ def get_train_test_args():
     parser.add_argument('--batch-size', type=int, default=16)
     parser.add_argument('--combined', action='store_true') # Train on IID + OOD
     parser.add_argument('--binary-align', action='store_true') # Binary domain alignment (if not used, then default will be multi-domain alignment). This is only applicable if you are training on IID+OOD  
+    parser.add_argument('--wiki-align', action='store_true')
     parser.add_argument('--anneal', action='store_true') # Anneal discriminator lambda based on the global step you are taking
     parser.add_argument('--num-adv-steps', type=int, default=1) # Number of times to update the discriminator per batch
     parser.add_argument('--full-embedding', action='store_true') # Send in the full embedding instead of just the CLS token into the discriminator

@@ -61,13 +61,40 @@ def main():
 
                 # We only include domain_id in training data since the gan only operates on the
                 # training stage.
-                train_dataset = []
+                train_dataset = []git
                 for dataset_name in args.train_datasets.split(','):
                     tmp_train_dataset, _ = get_dataset(args, dataset_name, args.train_dir, tokenizer, 'train', 0)
                     train_dataset.append(tmp_train_dataset)
 
                 for dataset_name in args.OOD_train_datasets.split(','):
                     tmp_train_dataset, _ = get_dataset(args, dataset_name, args.OOD_train_dir, tokenizer, 'train', 1)
+                    train_dataset.append(tmp_train_dataset)
+
+            elif args.wiki_align:
+                # Wiki
+                create_cache(args, 'squad', args.train_dir, tokenizer, 'train', 0)    
+                create_cache(args, 'nat_questions', args.train_dir, tokenizer, 'train', 0)
+                create_cache(args, 'relation_extraction', args.OOD_train_dir, tokenizer, 'train', 0)
+                # Non-Wiki                            
+                create_cache(args, 'newsqa', args.train_dir, tokenizer, 'train', 1)    
+                create_cache(args, 'duorc', args.OOD_train_dir, tokenizer, 'train', 1)
+                create_cache(args, 'race', args.OOD_train_dir, tokenizer, 'train', 1)                                     
+
+                train_dataset = []
+                for dataset_name in args.train_datasets.split(','):
+                    if dataset_name == "newsqa":
+                        domain_id = 1
+                    else:
+                        domain_id = 0
+                    tmp_train_dataset, _ = get_dataset(args, dataset_name, args.train_dir, tokenizer, 'train', domain_id)
+                    train_dataset.append(tmp_train_dataset)
+
+                for dataset_name in args.OOD_train_datasets.split(','):
+                    if dataset_name == "relation_extraction":
+                        domain_id = 0
+                    else:
+                        domain_id = 1
+                    tmp_train_dataset, _ = get_dataset(args, dataset_name, args.OOD_train_dir, tokenizer, 'train', domain_id)
                     train_dataset.append(tmp_train_dataset)
 
             else:
@@ -188,7 +215,7 @@ def main():
         split_name = 'test' if 'test' in args.eval_dir else 'validation'
         log = util.get_logger(args.save_dir, f'log_{split_name}')
         trainer = Trainer(args, log)
-        checkpoint_path = os.path.join(args.save_dir, 'finetune_checkpoint') # Load the FINETUNED model
+        checkpoint_path = os.path.join(args.save_dir, 'checkpoint') # Load the FINETUNED model
         model = DistilBertForQuestionAnswering.from_pretrained(checkpoint_path)
         model.to(args.device)
 

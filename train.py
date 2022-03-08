@@ -139,10 +139,10 @@ class AdversarialTrainer(Trainer):
             self.input_size = 384 * 768
             self.hidden_size = 768 / 16
         else:
-            self.input_size = 384
+            self.input_size = 768
             self.hidden_size = 768
         if args.combined:
-            if args.binary_align:
+            if args.binary_align or args.wiki_align:
                 self.num_domains = 2
             else:
                 self.num_domains = len(args.train_datasets.split(",")) + len(args.OOD_train_datasets.split(","))  # This gives me the number of training datasets I have...
@@ -152,7 +152,7 @@ class AdversarialTrainer(Trainer):
         
 
     def create_discriminator(self):
-        self.Discriminator = DomainDiscriminator(num_classes=self.num_domains, input_size=self.input_size, hidden_size=self.hidden_size)
+        self.Discriminator = DomainDiscriminator(num_classes=self.num_domains, input_size=int(self.input_size), hidden_size=int(self.hidden_size))
         self.dis_optim = AdamW(self.Discriminator.parameters(), lr=self.lr) # In this case I am using the same LR as normal QA model
         self.Discriminator.to(self.device)
 
@@ -226,7 +226,8 @@ class AdversarialTrainer(Trainer):
 
                     # This is the new loss that penalizes the QA loss if adv_loss does well
                     if self.anneal:
-                        self.dis_lambda = self.dis_lambda * kl_coef(global_idx) # Anneal accordingly (intuition: progressively train discriminator with harder examples)
+                        self.dis_lambda = 0.01 * kl_coef(global_idx) # Anneal accordingly (intuition: progressively train discriminator with harder examples)
+                        #print(self.dis_lambda)
 
                     total_loss = qa_loss + self.dis_lambda*KL_adv_loss
                     total_loss = total_loss.mean()
