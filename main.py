@@ -20,6 +20,7 @@ from train import Trainer, AdversarialTrainer
 
 from data_processing import create_cache, get_dataset
 
+
 def main():
     # define parser and arguments
     args = get_train_test_args()

@@ -11,10 +11,12 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "args":[
-                "--do-train",
-                "--adv-train", 
-                "--run-name", 
-                "domain_gan"
+                // "--do-train",
+                // "--adv-train", 
+                // "--run-name", 
+                // "domain_gan"
+                "--synth-file",
+                "datasets/oodomain_train/duorc"
             ]
         }
     ]
