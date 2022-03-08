@@ -224,6 +224,40 @@ def read_squad(path):
                                                   'text': [answer['text'] for answer in all_answers]})
     return data_dict_collapsed
 
+def write_squad(dataset_dict, filepath):
+    json_output = {'data':[]}
+
+    sort_idx = sorted(range(len(dataset_dict['context'])), key=dataset_dict['context'].__getitem__)
+
+    i = 0
+    while i < len(sort_idx):
+        full_context = dataset_dict['context'][sort_idx[i]]
+        title = full_context[:52]
+        qas = []
+        while (i + 1 < len(sort_idx)):
+            if (dataset_dict['context'][sort_idx[i+1]] != dataset_dict['context'][sort_idx[i]]):
+                break
+            # reiterate through answers to format output properly
+            answers = []
+            for a_idx in range(len(dataset_dict['answer'][sort_idx[i]]['answer_start'])):
+                answers.append({'answer_start':dataset_dict['answer'][sort_idx[i]]['answer_start'][a_idx], 'text': dataset_dict['answer'][sort_idx[i]]['text'][a_idx]})
+            qas.append({'question': dataset_dict['question'][sort_idx[i]], 'id': dataset_dict['id'][sort_idx[i]], 'answers': answers})
+            i += 1
+        answers = []
+        for a_idx in range(len(dataset_dict['answer'][sort_idx[i]]['answer_start'])):
+            answers.append({'answer_start':dataset_dict['answer'][sort_idx[i]]['answer_start'][a_idx], 'text': dataset_dict['answer'][sort_idx[i]]['text'][a_idx]})
+        qas.append({'question': dataset_dict['question'][sort_idx[i]], 'id': dataset_dict['id'][sort_idx[i]], 'answers': answers})
+        i += 1
+        json_entry = {
+            "title":title,
+            "paragraphs":[{"context": full_context, "qas": qas}] 
+        }
+        json_output['data'].append(json_entry)
+
+    with open(filepath, 'w') as outfile:
+        json.dump(json_output, outfile)
+        print(f'Results written to {filepath}.')
+
 def add_token_positions(encodings, answers, tokenizer):
     start_positions = []
     end_positions = []

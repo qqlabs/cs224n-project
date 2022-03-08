@@ -17,7 +17,7 @@
                 // "domain_gan"
 
                 // "--synth-file",
-                "--combine",
+                "--file",
                 "datasets/oodomain_train/duorc"
             ]
         }

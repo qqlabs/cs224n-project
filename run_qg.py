@@ -24,7 +24,7 @@ from transformers import (
 from question_generation.qg_trainer import Trainer
 from question_generation.data_collator import T2TDataCollator
 from question_generation.qg_utils import freeze_embeds, assert_not_all_frozen
-from util import read_squad
+from util import read_squad, write_squad
 
 from question_generation.pipelines import pipeline
 from nltk import sent_tokenize
@@ -110,7 +110,7 @@ def gen_qas(synth_file):
         # split into 16 sentences sliding 8 at a time
         sents = sent_tokenize(full_context)
 
-        stride = 8
+        stride = 16
         max_len = 16
         i = 0
         chunk_end = 0
@@ -132,9 +132,13 @@ def gen_qas(synth_file):
     total_chunks = len(chunked_context['context'])
 
     total_questions = set()
-    for idx, context in enumerate(chunked_context['context']):
-        # if random.random() >= 0.01:
-        #     continue
+    random_idx = random.sample(range(len(chunked_context['context'])), 5000)
+    # for idx, context in enumerate(chunked_context['context']):
+    for idx in random_idx:
+        context = chunked_context['context'][idx]
+        # if random.random() >= 0.25:
+            # continue
+
         # return qa pairs
         qas = nlp(context)
         if len(qas) == 0:
@@ -156,8 +160,8 @@ def gen_qas(synth_file):
                 continue
             qas_filtered.append(qa)
 
-        # limit to 2 questions
-        # qas_filtered = random.sample(qas_filtered, min(2, len(qas_filtered)))
+        # limit to 5 questions
+        qas_filtered = random.sample(qas_filtered, min(2, len(qas_filtered)))
 
         full_context = chunked_context['full_context'][idx]
         title = full_context[:52]
@@ -177,7 +181,7 @@ def gen_qas(synth_file):
         json.dump(json_output, outfile)
         print(f'Synthetic Examples written to {synth_file}_synth')
     
-    combine_qas(synth_file)
+    # combine_qas(synth_file)
 
 def combine_qas(filepath):
     dataset_dict = read_squad(filepath)
@@ -188,38 +192,40 @@ def combine_qas(filepath):
     dataset_dict['id'].extend(synth_dict['id'])
     dataset_dict['answer'].extend(synth_dict['answer'])
 
-    json_output = {'data':[]}
+    write_squad(dataset_dict, filepath + '_combined')
+    # json_output = {'data':[]}
 
-    sort_idx = sorted(range(len(dataset_dict['context'])), key=dataset_dict['context'].__getitem__)
+    # sort_idx = sorted(range(len(dataset_dict['context'])), key=dataset_dict['context'].__getitem__)
 
-    i = 0
-    while i < len(sort_idx):
-        full_context = dataset_dict['context'][sort_idx[i]]
-        title = full_context[:52]
-        qas = []
-        while (i + 1 < len(sort_idx)):
-            if (dataset_dict['context'][sort_idx[i+1]] != dataset_dict['context'][sort_idx[i]]):
-                break
-            # reiterate through answers to format output properly
-            answers = []
-            for a_idx in range(len(dataset_dict['answer'][sort_idx[i]]['answer_start'])):
-                answers.append({'answer_start':dataset_dict['answer'][sort_idx[i]]['answer_start'][a_idx], 'text': dataset_dict['answer'][sort_idx[i]]['text'][a_idx]})
-            qas.append({'question': dataset_dict['question'][sort_idx[i]], 'id': dataset_dict['id'][sort_idx[i]], 'answers': answers})
-            i += 1
-        answers = []
-        for a_idx in range(len(dataset_dict['answer'][sort_idx[i]]['answer_start'])):
-            answers.append({'answer_start':dataset_dict['answer'][sort_idx[i]]['answer_start'][a_idx], 'text': dataset_dict['answer'][sort_idx[i]]['text'][a_idx]})
-        qas.append({'question': dataset_dict['question'][sort_idx[i]], 'id': dataset_dict['id'][sort_idx[i]], 'answers': answers})
-        i += 1
-        json_entry = {
-            "title":title,
-            "paragraphs":[{"context": full_context, "qas": qas}] 
-        }
-        json_output['data'].append(json_entry)
+    # i = 0
+    # while i < len(sort_idx):
+    #     full_context = dataset_dict['context'][sort_idx[i]]
+    #     title = full_context[:52]
+    #     qas = []
+    #     while (i + 1 < len(sort_idx)):
+    #         if (dataset_dict['context'][sort_idx[i+1]] != dataset_dict['context'][sort_idx[i]]):
+    #             break
+    #         # reiterate through answers to format output properly
+    #         answers = []
+    #         for a_idx in range(len(dataset_dict['answer'][sort_idx[i]]['answer_start'])):
+    #             answers.append({'answer_start':dataset_dict['answer'][sort_idx[i]]['answer_start'][a_idx], 'text': dataset_dict['answer'][sort_idx[i]]['text'][a_idx]})
+    #         qas.append({'question': dataset_dict['question'][sort_idx[i]], 'id': dataset_dict['id'][sort_idx[i]], 'answers': answers})
+    #         i += 1
+    #     answers = []
+    #     for a_idx in range(len(dataset_dict['answer'][sort_idx[i]]['answer_start'])):
+    #         answers.append({'answer_start':dataset_dict['answer'][sort_idx[i]]['answer_start'][a_idx], 'text': dataset_dict['answer'][sort_idx[i]]['text'][a_idx]})
+    #     qas.append({'question': dataset_dict['question'][sort_idx[i]], 'id': dataset_dict['id'][sort_idx[i]], 'answers': answers})
+    #     i += 1
+    #     json_entry = {
+    #         "title":title,
+    #         "paragraphs":[{"context": full_context, "qas": qas}] 
+    #     }
+    #     json_output['data'].append(json_entry)
 
-    with open(filepath + '_combined', 'w') as outfile:
-        json.dump(json_output, outfile)
-        print(f'Combined {filepath} with synth data.')
+    # with open(filepath + '_combined', 'w') as outfile:
+    #     json.dump(json_output, outfile)
+    #     print(f'Combined {filepath} with synth data.')
+    
 
 def get_action_args():
     parser = argparse.ArgumentParser()
