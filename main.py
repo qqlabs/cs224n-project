@@ -44,8 +44,9 @@ def main():
         else:
             trainer = Trainer(args, log)
 
-        if args.combined: # Train on IID + OOD
-            if args.binary_align: # Domain ID is binary
+        # Train on IID + OOD
+        if args.combined: 
+            if args.binary_align: # Domain ID is binary - 0 for IID and 1 for OOD
                 # Create cache by tokenizing, don't load anything so we use less memory
                 # Note, here the domain ID will be 0
                 for dataset_name in args.train_datasets.split(','):
@@ -54,14 +55,7 @@ def main():
                 for dataset_name in args.OOD_train_datasets.split(','):
                     create_cache(args, dataset_name, args.OOD_train_dir, tokenizer, 'train', 1)                       
 
-                # We need to include the domain_id in our training data since the gan needs the 
-                # true domain_id to calculate loss.
-                # We will assign each domain_id based on the order they are listed in the
-                # args for training datasets. This will remain fixed.
-
-                # We only include domain_id in training data since the gan only operates on the
-                # training stage.
-                train_dataset = []git
+                train_dataset = []
                 for dataset_name in args.train_datasets.split(','):
                     tmp_train_dataset, _ = get_dataset(args, dataset_name, args.train_dir, tokenizer, 'train', 0)
                     train_dataset.append(tmp_train_dataset)
@@ -97,8 +91,7 @@ def main():
                     tmp_train_dataset, _ = get_dataset(args, dataset_name, args.OOD_train_dir, tokenizer, 'train', domain_id)
                     train_dataset.append(tmp_train_dataset)
 
-            else:
-                # Create cache by tokenizing, don't load anything so we use less memory
+            else: # Standard multi-source alignment. Each dataset gets an index from 0 to 5
                 # Note, here the domain ID will be from 0 to 2
                 for domain_id, dataset_name in enumerate(args.train_datasets.split(',')):
                     create_cache(args, dataset_name, args.train_dir, tokenizer, 'train', domain_id)            
@@ -107,13 +100,6 @@ def main():
                 for domain_id, dataset_name in enumerate(args.OOD_train_datasets.split(',')):
                     create_cache(args, dataset_name, args.OOD_train_dir, tokenizer, 'train', domain_id+num_IID_dataset)                       
 
-                # We need to include the domain_id in our training data since the gan needs the 
-                # true domain_id to calculate loss.
-                # We will assign each domain_id based on the order they are listed in the
-                # args for training datasets. This will remain fixed.
-
-                # We only include domain_id in training data since the gan only operates on the
-                # training stage.
                 train_dataset = []
 
                 for domain_id, dataset_name in enumerate(args.train_datasets.split(',')):
@@ -125,12 +111,29 @@ def main():
                     train_dataset.append(tmp_train_dataset)
 
         else: # Train on only IID
-            for domain_id, dataset_name in enumerate(args.train_datasets.split(',')):
-                create_cache(args, dataset_name, args.train_dir, tokenizer, 'train', domain_id)
-            train_dataset = []
-            for domain_id, dataset_name in enumerate(args.train_datasets.split(',')):
-                tmp_train_dataset, _ = get_dataset(args, dataset_name, args.train_dir, tokenizer, 'train', domain_id)
-                train_dataset.append(tmp_train_dataset)           
+            if args.wiki_align: # This is if I use wiki alignment on only IID
+                # Wiki
+                create_cache(args, 'squad', args.train_dir, tokenizer, 'train', 0)    
+                create_cache(args, 'nat_questions', args.train_dir, tokenizer, 'train', 0)
+                # Non-Wiki                            
+                create_cache(args, 'newsqa', args.train_dir, tokenizer, 'train', 1)                                
+
+                train_dataset = []
+                for dataset_name in args.train_datasets.split(','):
+                    if dataset_name == "newsqa":
+                        domain_id = 1
+                    else:
+                        domain_id = 0
+                    tmp_train_dataset, _ = get_dataset(args, dataset_name, args.train_dir, tokenizer, 'train', domain_id)
+                    train_dataset.append(tmp_train_dataset)
+
+            else: # Standard IID datasets without special alignment
+                for domain_id, dataset_name in enumerate(args.train_datasets.split(',')):
+                    create_cache(args, dataset_name, args.train_dir, tokenizer, 'train', domain_id)
+                train_dataset = []
+                for domain_id, dataset_name in enumerate(args.train_datasets.split(',')):
+                    tmp_train_dataset, _ = get_dataset(args, dataset_name, args.train_dir, tokenizer, 'train', domain_id)
+                    train_dataset.append(tmp_train_dataset)           
 
         # Concat my datasets together
         train_set = ConcatDataset(train_dataset)
@@ -193,29 +196,20 @@ def main():
         model = DistilBertForQuestionAnswering.from_pretrained(checkpoint_path) # Load checkpoint
         log.info("Model loaded from " + checkpoint_path)
 
-        # Load my last set of best scores
-        # best_scores = pickle.load(open(args.save_dir + "/best_scores.p", "rb"))
-        # log.info("Previous best score loaded!")
-        # log.info(str(best_scores))
-
-        # Choose between normal QA model or QA with adversarial       
+        # Load QA trainer    
         trainer = Trainer(args, log)
 
         # Now, finetune my model
         best_scores = {'F1': -1.0, 'EM': -1.0}    
         best_scores_finetune = trainer.train(model, OOD_train_loader, OOD_val_loader, OOD_val_dict, best_scores, "finetune")
-        # FYI: The best scores that I load into here is the final best scores from the first part of the training
-        # I.e. I will not update my model's parameters unless it beats the previous results
 
-        # Save my best score
-        # pickle.dump(best_scores_finetune, open(args.save_dir + "finetuned_best_scores.p", "wb"))
     
     if args.do_eval:
         args.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         split_name = 'test' if 'test' in args.eval_dir else 'validation'
         log = util.get_logger(args.save_dir, f'log_{split_name}')
         trainer = Trainer(args, log)
-        checkpoint_path = os.path.join(args.save_dir, 'checkpoint') # Load the FINETUNED model
+        checkpoint_path = os.path.join(args.save_dir, 'finetune_checkpoint') # Load the FINETUNED model. Note: we should add a toggle here...
         model = DistilBertForQuestionAnswering.from_pretrained(checkpoint_path)
         model.to(args.device)
 

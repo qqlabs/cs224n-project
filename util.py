@@ -14,9 +14,9 @@ from tqdm import tqdm
 from torch.utils.data import Dataset
 
 def kl_coef(i):
-    # coef for KL annealing
-    # reaches 1 at i = 22000
-    # https://github.com/kefirski/pytorch_RVAE/blob/master/utils/functional.py
+    # Coefficient for annealing of the discriminator lambda in the QA loss function
+    # It hits 1 at the 20k step
+    # Source: https://github.com/kefirski/pytorch_RVAE/blob/master/utils/functional.py
     return (math.tanh((i - 3500) / 1000) + 1) / 2 
 
 def set_seed(seed):

@@ -136,18 +136,21 @@ class AdversarialTrainer(Trainer):
         self.num_adv_steps = args.num_adv_steps
         self.full_embedding = args.full_embedding
         if self.full_embedding:
-            self.input_size = 384 * 768
-            self.hidden_size = 768 / 16
+            self.input_size = 384 * 768 # Chunk size of 384, each vector is 768 dim
+            self.hidden_size = 768 / 16 # Reduce hidden layer size by factor of 16 to improve computational complexity
         else:
-            self.input_size = 768
+            self.input_size = 768 # Pass in CLS token which is 768 dim
             self.hidden_size = 768
         if args.combined:
             if args.binary_align or args.wiki_align:
                 self.num_domains = 2
             else:
-                self.num_domains = len(args.train_datasets.split(",")) + len(args.OOD_train_datasets.split(","))  # This gives me the number of training datasets I have...
+                self.num_domains = len(args.train_datasets.split(",")) + len(args.OOD_train_datasets.split(","))
         else:
-            self.num_domains = len(args.train_datasets.split(","))
+            if args.binary_align:
+                self.num_domains = 2
+            else:
+                self.num_domains = len(args.train_datasets.split(","))
         self.create_discriminator()
         
 
@@ -227,7 +230,6 @@ class AdversarialTrainer(Trainer):
                     # This is the new loss that penalizes the QA loss if adv_loss does well
                     if self.anneal:
                         self.dis_lambda = 0.01 * kl_coef(global_idx) # Anneal accordingly (intuition: progressively train discriminator with harder examples)
-                        #print(self.dis_lambda)
 
                     total_loss = qa_loss + self.dis_lambda*KL_adv_loss
                     total_loss = total_loss.mean()
@@ -238,11 +240,11 @@ class AdversarialTrainer(Trainer):
                     # Impose W Regularization if needed
                     # This clips our weights to enforce gradient constraint for smoother training of discriminator
                     if self.w_reg:
-                        for p in self.Discriminator.parameters():
-                            p.data.clamp_(-0.01, 0.01)
+                        for param in self.Discriminator.parameters():
+                            param.data.clamp_(-0.01, 0.01) # This is the suggested range used in the WGAN paper
 
-                    # As per GAN algorithm, let the discriminator train multiple times for a given batch
-                    # Give the discriminator a fighting chance!
+                    # As per the original GAN algorithm, let the discriminator train multiple times for a given batch
+                    # Give the discriminator a better fighting chance
                     for step in range(self.num_adv_steps):
                         self.dis_optim.zero_grad()
                         dis_output = self.Discriminator(qa_hidden_input.clone().detach())
@@ -250,20 +252,6 @@ class AdversarialTrainer(Trainer):
                         dis_loss = dis_loss.mean() # average the loss across batch
                         dis_loss.backward() # Backward propagate
                         self.dis_optim.step() # Take a step
-
-                    # # DISCRIMINATOR TRAINING
-                    # self.dis_optim.zero_grad() # Set to 0 grad before commencing training
-
-                    # # Predict with Discriminator
-                    # # This time, need to detach so we don't propagate the hidden states
-                    # # twice through the gradient.
-                    # dis_output = self.Discriminator(qa_hidden_input.clone().detach())
-                    
-                    # # Get Discriminator Loss
-                    # dis_loss = self.discriminator_loss(dis_output, domain_id, "NLL")
-                    # dis_loss = dis_loss.mean() # average the loss across batch
-                    # dis_loss.backward() # Backward propagate
-                    # self.dis_optim.step() # Take a step
                     
                     # Display epochs and losses in progress bar
                     progress_bar.update(len(input_ids))
