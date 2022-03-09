@@ -17,8 +17,13 @@
                 // "domain_gan"
 
                 // "--synth-file",
-                "--file",
-                "datasets/oodomain_train/duorc"
+                // "--file",
+                // "datasets/oodomain_train/duorc"
+                "--do-eval",
+                "--eval-dir",
+                "datasets/oodomain_val",
+                "--save-dir",
+                "save/adversarial-01"
             ]
         }
     ]

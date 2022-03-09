@@ -1,3 +1,4 @@
+from collections import defaultdict
 import os
 import csv
 import json
@@ -149,23 +150,45 @@ def main():
 
         # evaluate on every dataset in eval_dir
         eval_datasets = [f for f in os.listdir(args.eval_dir) if ".pt" not in f]
-        combined_eval_data = ','.join(map(str, eval_datasets)) # also eval over all combined datasets
-        eval_datasets.append(combined_eval_data)
+        # combined_eval_data = ','.join(map(str, eval_datasets)) # also eval over all combined datasets
+        # eval_datasets.append(combined_eval_data)
+
+        num_qas = {}
+        eval_scores_dict = {}
+        eval_scores_dict['Overall'] = defaultdict(int)
 
         for dataset in eval_datasets:
             eval_dataset, eval_dict = get_dataset(args, dataset, args.eval_dir, tokenizer, split_name)
+            num_qas[dataset] = len(eval_dict['question'])
             eval_loader = DataLoader(eval_dataset,
                                     batch_size=args.batch_size,
                                     sampler=SequentialSampler(eval_dataset))
             eval_preds, eval_scores = trainer.evaluate(model, eval_loader,
                                                     eval_dict, return_preds=True,
                                                     split=split_name)
+            eval_scores_dict[dataset] = eval_scores
             results_str = ', '.join(f'{k}: {v:05.2f}' for k, v in eval_scores.items())
 
-            if dataset == combined_eval_data:
-                log.info(f'Combined Eval {results_str}')
-            else:
-                log.info(f'{dataset} Eval {results_str}')
+            log.info(f'{dataset} Eval {results_str}')
+
+        for dataset in eval_datasets:
+            for k, v in eval_scores_dict[dataset].items():
+                eval_scores_dict['Overall'][k] += num_qas[dataset]/sum(num_qas.values())*v
+        
+        results_str = ', '.join(f'{k}: {v:05.2f}' for k, v in eval_scores_dict['Overall'].items())
+        log.info(f'Overall Eval {results_str}')
+
+        results_str = ''
+        dataset_str = ''
+        for k,v in eval_scores_dict.items():
+            dataset_str += k + '\t'
+            for metric, score in v.items():
+                results_str += f'{score:05.2f}' + '\t'
+
+        log.info('Easy Copy Paste')
+        log.info(f'Datasets: {dataset_str}')
+        log.info(f'Scores: {results_str}')
+
         # Write submission file
         if args.sub_file != "":
             sub_path = os.path.join(args.save_dir, split_name + '_' + args.sub_file)            
