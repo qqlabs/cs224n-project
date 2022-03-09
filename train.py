@@ -3,6 +3,7 @@ from collections import OrderedDict
 import torch
 
 import util
+from util import kl_coef
 
 from transformers import AdamW
 from tensorboardX import SummaryWriter
@@ -129,38 +130,38 @@ class Trainer():
 class AdversarialTrainer(Trainer):
     def __init__(self, args, log):
         super(AdversarialTrainer, self).__init__(args, log)
-        self.n_train_datasets = len(args.train_datasets.split(",")) # This gives me the number of training datasets I have...
         self.dis_lambda = args.dis_lambda
+        self.anneal = args.anneal
+        self.w_reg = args.w_reg
+        self.num_adv_steps = args.num_adv_steps
+        self.full_embedding = args.full_embedding
+        if self.full_embedding:
+            self.input_size = 384 * 768 # Chunk size of 384, each vector is 768 dim
+            self.hidden_size = 768 / 16 # Reduce hidden layer size by factor of 16 to improve computational complexity
+        else:
+            self.input_size = 768 # Pass in CLS token which is 768 dim
+            self.hidden_size = 768
+        if args.combined:
+            if args.binary_align or args.wiki_align:
+                self.num_domains = 2
+            else:
+                self.num_domains = len(args.train_datasets.split(",")) + len(args.OOD_train_datasets.split(","))
+        else:
+            if args.binary_align:
+                self.num_domains = 2
+            else:
+                self.num_domains = len(args.train_datasets.split(","))
         self.create_discriminator()
-
-        # self.qa_checkpoint_path = os.path.join(self.path, 'QA') # Where I store my model after training it on IID training
-        # self.discrim_checkpoint_path = os.path.join(self.path, 'Discriminator') # Where I store my model after training it on IID training
         
-    #     if not os.path.exists(self.qa_checkpoint_path):
-    #         os.makedirs(self.qa_checkpoint_path)
-    #     if not os.path.exists(self.discrim_checkpoint_path):
-    #         os.makedirs(self.discrim_checkpoint_path)
-        
-    # def save(self, model, stage):
-    #     if stage == "train":
-    #         model.save_pretrained(self.qa_checkpoint_path)
-    #         self.Discriminator.save_pretrained(self.qa_discrim_checkpoint_path)
-
-
-
-    #         torch.save(model.state_dict(), self.qa_checkpoint_path) # Save the QA model
-    #         torch.save(self.Discriminator.state_dict(), self.discrim_checkpoint_path) # Saves my discriminator model in a discriminator subfolder
-    #     elif stage == "finetune":
-    #         torch.save(model.state_dict(), self.finetune_path) # Save the QA model
 
     def create_discriminator(self):
-        self.Discriminator = DomainDiscriminator(num_classes=self.n_train_datasets) # Create my discriminator
+        self.Discriminator = DomainDiscriminator(num_classes=self.num_domains, input_size=int(self.input_size), hidden_size=int(self.hidden_size))
         self.dis_optim = AdamW(self.Discriminator.parameters(), lr=self.lr) # In this case I am using the same LR as normal QA model
         self.Discriminator.to(self.device)
 
     def discriminator_loss(self, dis_log_probs, true_labels, loss_type):
         if loss_type == "KLD": # This is the KL Divergence Loss
-            targets = torch.ones_like(dis_log_probs) * (1 / self.n_train_datasets) # Simple uniform distribution across number of training datasets
+            targets = torch.ones_like(dis_log_probs) * (1 / self.num_domains) # Simple uniform distribution across number of training datasets
             loss = torch.nn.KLDivLoss(reduction="batchmean")(dis_log_probs, targets)
             return loss
 
@@ -180,7 +181,6 @@ class AdversarialTrainer(Trainer):
             self.log.info(f'Epoch: {epoch_num}')
             with torch.enable_grad(), tqdm(total=len(train_dataloader.dataset)) as progress_bar:
                 for batch in train_dataloader:
-                    qa_optim.zero_grad()
                     qa_model.train()
                     self.Discriminator.train()
                     
@@ -194,10 +194,12 @@ class AdversarialTrainer(Trainer):
 
                     # QA PREDICTION
                     # First make a QA prediction
+                    qa_optim.zero_grad()
                     qa_outputs = qa_model(input_ids, attention_mask=attention_mask,
                                     start_positions=start_positions,
                                     end_positions=end_positions,
-                                    output_hidden_states=True)                    
+                                    output_hidden_states=True)
+
                     # Store the QA loss to train later
                     qa_loss = qa_outputs.loss
 
@@ -205,8 +207,14 @@ class AdversarialTrainer(Trainer):
                     # Last layer of hidden_states is pulled like this
                     # See https://github.com/huggingface/transformers/blob/v4.16.2/src/transformers/models/distilbert/modeling_distilbert.py#L330
                     qa_last_hidden_state = qa_outputs.hidden_states[-1]
-                    # send in the CLS embedding since we have 384 tokens
-                    qa_hidden_input = qa_last_hidden_state[:, 0]
+
+                    if self.full_embedding:
+                        # send in inputs for the entire layer
+                        qa_hidden_input = torch.flatten(qa_last_hidden_state, start_dim=1)
+                    else:
+                        # send in the CLS embedding since we have 384 tokens
+                        qa_hidden_input = qa_last_hidden_state[:, 0]
+
                     
                     # Can also average the tokens
                     # qa_hidden_input = torch.mean(qa_last_hidden_state, dim=1)
@@ -220,27 +228,32 @@ class AdversarialTrainer(Trainer):
                     KL_adv_loss = self.discriminator_loss(adv_output, domain_id, "KLD")
 
                     # This is the new loss that penalizes the QA loss if adv_loss does well
+                    if self.anneal:
+                        self.dis_lambda = 0.01 * kl_coef(global_idx) # Anneal accordingly (intuition: progressively train discriminator with harder examples)
+
                     total_loss = qa_loss + self.dis_lambda*KL_adv_loss
                     total_loss = total_loss.mean()
                     total_loss.backward()
                     
                     qa_optim.step()
-                    qa_optim.zero_grad()
-                    
-                    # DISCRIMINATOR TRAINING
-                    self.dis_optim.zero_grad() # Set to 0 grad before commencing training
 
-                    # Predict with Discriminator
-                    # This time, need to detach so we don't propagate the hidden states
-                    # twice through the gradient.
-                    dis_output = self.Discriminator(qa_hidden_input.detach())
-                    
-                    # Get Discriminator Loss
-                    dis_loss = self.discriminator_loss(dis_output, domain_id, "NLL")
-                    dis_loss = dis_loss.mean() # average the loss across batch
-                    dis_loss.backward() # Backward propagate
-                    self.dis_optim.step() # Take a step
-                    self.dis_optim.zero_grad() # Reset to 0 grad
+
+
+                    # As per the original GAN algorithm, let the discriminator train multiple times for a given batch
+                    # Give the discriminator a better fighting chance
+                    for step in range(self.num_adv_steps):
+                        # Impose W Regularization if needed
+                        # This clips our weights to enforce gradient constraint for smoother training of discriminator
+                        if self.w_reg:
+                            for param in self.Discriminator.parameters():
+                                param.data.clamp_(-0.01, 0.01) # This is the suggested range used in the WGAN paper
+                                
+                        self.dis_optim.zero_grad()
+                        dis_output = self.Discriminator(qa_hidden_input.clone().detach())
+                        dis_loss = self.discriminator_loss(dis_output, domain_id, "NLL")
+                        dis_loss = dis_loss.mean() # average the loss across batch
+                        dis_loss.backward() # Backward propagate
+                        self.dis_optim.step() # Take a step
                     
                     # Display epochs and losses in progress bar
                     progress_bar.update(len(input_ids))
