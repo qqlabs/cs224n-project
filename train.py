@@ -1,156 +1,43 @@
-import argparse
-import json
 import os
 from collections import OrderedDict
 import torch
-import csv
+
 import util
-from transformers import DistilBertTokenizerFast
-from transformers import DistilBertForQuestionAnswering
+from util import kl_coef
+
 from transformers import AdamW
 from tensorboardX import SummaryWriter
 
-
-from torch.utils.data import DataLoader
-from torch.utils.data.sampler import RandomSampler, SequentialSampler
-from args import get_train_test_args
+from model import DomainDiscriminator
 
 from tqdm import tqdm
-
-def prepare_eval_data(dataset_dict, tokenizer):
-    tokenized_examples = tokenizer(dataset_dict['question'],
-                                   dataset_dict['context'],
-                                   truncation="only_second",
-                                   stride=128,
-                                   max_length=384,
-                                   return_overflowing_tokens=True,
-                                   return_offsets_mapping=True,
-                                   padding='max_length')
-    # Since one example might give us several features if it has a long context, we need a map from a feature to
-    # its corresponding example. This key gives us just that.
-    sample_mapping = tokenized_examples.pop("overflow_to_sample_mapping")
-
-    # For evaluation, we will need to convert our predictions to substrings of the context, so we keep the
-    # corresponding example_id and we will store the offset mappings.
-    tokenized_examples["id"] = []
-    for i in tqdm(range(len(tokenized_examples["input_ids"]))):
-        # Grab the sequence corresponding to that example (to know what is the context and what is the question).
-        sequence_ids = tokenized_examples.sequence_ids(i)
-        # One example can give several spans, this is the index of the example containing this span of text.
-        sample_index = sample_mapping[i]
-        tokenized_examples["id"].append(dataset_dict["id"][sample_index])
-        # Set to None the offset_mapping that are not part of the context so it's easy to determine if a token
-        # position is part of the context or not.
-        tokenized_examples["offset_mapping"][i] = [
-            (o if sequence_ids[k] == 1 else None)
-            for k, o in enumerate(tokenized_examples["offset_mapping"][i])
-        ]
-
-    return tokenized_examples
-
-
-
-def prepare_train_data(dataset_dict, tokenizer):
-    tokenized_examples = tokenizer(dataset_dict['question'],
-                                   dataset_dict['context'],
-                                   truncation="only_second",
-                                   stride=128,
-                                   max_length=384,
-                                   return_overflowing_tokens=True,
-                                   return_offsets_mapping=True,
-                                   padding='max_length')
-    sample_mapping = tokenized_examples["overflow_to_sample_mapping"]
-    offset_mapping = tokenized_examples["offset_mapping"]
-
-    # Let's label those examples!
-    tokenized_examples["start_positions"] = []
-    tokenized_examples["end_positions"] = []
-    tokenized_examples['id'] = []
-    inaccurate = 0
-    for i, offsets in enumerate(tqdm(offset_mapping)):
-        # We will label impossible answers with the index of the CLS token.
-        input_ids = tokenized_examples["input_ids"][i]
-        cls_index = input_ids.index(tokenizer.cls_token_id)
-
-        # Grab the sequence corresponding to that example (to know what is the context and what is the question).
-        sequence_ids = tokenized_examples.sequence_ids(i)
-
-        # One example can give several spans, this is the index of the example containing this span of text.
-        sample_index = sample_mapping[i]
-        answer = dataset_dict['answer'][sample_index]
-        # Start/end character index of the answer in the text.
-        start_char = answer['answer_start'][0]
-        end_char = start_char + len(answer['text'][0])
-        tokenized_examples['id'].append(dataset_dict['id'][sample_index])
-        # Start token index of the current span in the text.
-        token_start_index = 0
-        while sequence_ids[token_start_index] != 1:
-            token_start_index += 1
-
-        # End token index of the current span in the text.
-        token_end_index = len(input_ids) - 1
-        while sequence_ids[token_end_index] != 1:
-            token_end_index -= 1
-
-        # Detect if the answer is out of the span (in which case this feature is labeled with the CLS index).
-        if not (offsets[token_start_index][0] <= start_char and offsets[token_end_index][1] >= end_char):
-            tokenized_examples["start_positions"].append(cls_index)
-            tokenized_examples["end_positions"].append(cls_index)
-        else:
-            # Otherwise move the token_start_index and token_end_index to the two ends of the answer.
-            # Note: we could go after the last offset if the answer is the last word (edge case).
-            while token_start_index < len(offsets) and offsets[token_start_index][0] <= start_char:
-                token_start_index += 1
-            tokenized_examples["start_positions"].append(token_start_index - 1)
-            while offsets[token_end_index][1] >= end_char:
-                token_end_index -= 1
-            tokenized_examples["end_positions"].append(token_end_index + 1)
-            # assertion to check if this checks out
-            context = dataset_dict['context'][sample_index]
-            offset_st = offsets[tokenized_examples['start_positions'][-1]][0]
-            offset_en = offsets[tokenized_examples['end_positions'][-1]][1]
-            if context[offset_st : offset_en] != answer['text'][0]:
-                inaccurate += 1
-
-    total = len(tokenized_examples['id'])
-    print(f"Preprocessing not completely accurate for {inaccurate}/{total} instances")
-    return tokenized_examples
-
-
-
-def read_and_process(args, tokenizer, dataset_dict, dir_name, dataset_name, split):
-    #TODO: cache this if possible
-    cache_path = f'{dir_name}/{dataset_name}_encodings.pt'
-    if os.path.exists(cache_path) and not args.recompute_features:
-        tokenized_examples = util.load_pickle(cache_path)
-    else:
-        if split=='train':
-            tokenized_examples = prepare_train_data(dataset_dict, tokenizer)
-        else:
-            tokenized_examples = prepare_eval_data(dataset_dict, tokenizer)
-        util.save_pickle(tokenized_examples, cache_path)
-    return tokenized_examples
-
 
 
 #TODO: use a logger, use tensorboard
 class Trainer():
     def __init__(self, args, log):
+        # Set parameters
         self.lr = args.lr
         self.num_epochs = args.num_epochs
         self.device = args.device
         self.eval_every = args.eval_every
-        self.path = os.path.join(args.save_dir, 'checkpoint')
+        self.path = os.path.join(args.save_dir, 'checkpoint') # Where I store my model after training it on IID training
+        self.finetune_path = os.path.join(args.save_dir, 'finetune_checkpoint') # Where I store my model after finetuning it on OOD training
         self.num_visuals = args.num_visuals
         self.save_dir = args.save_dir
         self.log = log
         self.visualize_predictions = args.visualize_predictions
         if not os.path.exists(self.path):
             os.makedirs(self.path)
+        if not os.path.exists(self.finetune_path):
+            os.makedirs(self.finetune_path)
 
-    def save(self, model):
-        model.save_pretrained(self.path)
-
+    def save(self, model, stage):
+        if stage == "train": # Save in different checkpoint folders depending if I'm in train or finetuning stage
+            model.save_pretrained(self.path)
+        elif stage == "finetune":
+            model.save_pretrained(self.finetune_path)
+    
     def evaluate(self, model, data_loader, data_dict, return_preds=False, split='validation'):
         device = self.device
 
@@ -190,16 +77,15 @@ class Trainer():
         results = OrderedDict(results_list)
         if return_preds:
             return preds, results
-        return results
-
-    def train(self, model, train_dataloader, eval_dataloader, val_dict):
+        return results 
+    
+    def train(self, model, train_dataloader, eval_dataloader, val_dict, best_scores, stage):
         device = self.device
         model.to(device)
         optim = AdamW(model.parameters(), lr=self.lr)
         global_idx = 0
-        best_scores = {'F1': -1.0, 'EM': -1.0}
         tbx = SummaryWriter(self.save_dir)
-
+        
         for epoch_num in range(self.num_epochs):
             self.log.info(f'Epoch: {epoch_num}')
             with torch.enable_grad(), tqdm(total=len(train_dataloader.dataset)) as progress_bar:
@@ -236,74 +122,172 @@ class Trainer():
                                            num_visuals=self.num_visuals)
                         if curr_score['F1'] >= best_scores['F1']:
                             best_scores = curr_score
-                            self.save(model)
+                            self.save(model, stage) # Where I save depends on which stage I'm in
                     global_idx += 1
         return best_scores
 
-def get_dataset(args, datasets, data_dir, tokenizer, split_name):
-    datasets = datasets.split(',')
-    dataset_dict = None
-    dataset_name=''
-    for dataset in datasets:
-        dataset_name += f'_{dataset}'
-        dataset_dict_curr = util.read_squad(f'{data_dir}/{dataset}')
-        dataset_dict = util.merge(dataset_dict, dataset_dict_curr)
-    data_encodings = read_and_process(args, tokenizer, dataset_dict, data_dir, dataset_name, split_name)
-    return util.QADataset(data_encodings, train=(split_name=='train')), dataset_dict
+# This implements the QA model with adversarial learning    
+class AdversarialTrainer(Trainer):
+    def __init__(self, args, log):
+        super(AdversarialTrainer, self).__init__(args, log)
+        self.dis_lambda = args.dis_lambda
+        self.anneal = args.anneal
+        self.w_reg = args.w_reg
+        self.num_adv_steps = args.num_adv_steps
+        self.full_embedding = args.full_embedding
+        if self.full_embedding:
+            self.input_size = 384 * 768 # Chunk size of 384, each vector is 768 dim
+            self.hidden_size = 768 / 16 # Reduce hidden layer size by factor of 16 to improve computational complexity
+        else:
+            self.input_size = 768 # Pass in CLS token which is 768 dim
+            self.hidden_size = 768
+        if args.combined:
+            if args.binary_align or args.wiki_align:
+                self.num_domains = 2
+            else:
+                self.num_domains = len(args.train_datasets.split(",")) + len(args.OOD_train_datasets.split(","))
+        else:
+            if args.binary_align:
+                self.num_domains = 2
+            else:
+                self.num_domains = len(args.train_datasets.split(","))
+        self.create_discriminator()
+        
 
-def main():
-    # define parser and arguments
-    args = get_train_test_args()
+    def create_discriminator(self):
+        self.Discriminator = DomainDiscriminator(num_classes=self.num_domains, input_size=int(self.input_size), hidden_size=int(self.hidden_size))
+        self.dis_optim = AdamW(self.Discriminator.parameters(), lr=self.lr) # In this case I am using the same LR as normal QA model
+        self.Discriminator.to(self.device)
 
-    util.set_seed(args.seed)
-    model = DistilBertForQuestionAnswering.from_pretrained("distilbert-base-uncased")
-    tokenizer = DistilBertTokenizerFast.from_pretrained('distilbert-base-uncased')
+    def discriminator_loss(self, dis_log_probs, true_labels, loss_type):
+        if loss_type == "KLD": # This is the KL Divergence Loss
+            targets = torch.ones_like(dis_log_probs) * (1 / self.num_domains) # Simple uniform distribution across number of training datasets
+            loss = torch.nn.KLDivLoss(reduction="batchmean")(dis_log_probs, targets)
+            return loss
 
-    if args.do_train:
-        if not os.path.exists(args.save_dir):
-            os.makedirs(args.save_dir)
-        args.save_dir = util.get_save_dir(args.save_dir, args.run_name)
-        log = util.get_logger(args.save_dir, 'log_train')
-        log.info(f'Args: {json.dumps(vars(args), indent=4, sort_keys=True)}')
-        log.info("Preparing Training Data...")
-        args.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-        trainer = Trainer(args, log)
-        train_dataset, _ = get_dataset(args, args.train_datasets, args.train_dir, tokenizer, 'train')
-        log.info("Preparing Validation Data...")
-        val_dataset, val_dict = get_dataset(args, args.train_datasets, args.val_dir, tokenizer, 'val')
-        train_loader = DataLoader(train_dataset,
-                                batch_size=args.batch_size,
-                                sampler=RandomSampler(train_dataset))
-        val_loader = DataLoader(val_dataset,
-                                batch_size=args.batch_size,
-                                sampler=SequentialSampler(val_dataset))
-        best_scores = trainer.train(model, train_loader, val_loader, val_dict)
-    if args.do_eval:
-        args.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-        split_name = 'test' if 'test' in args.eval_dir else 'validation'
-        log = util.get_logger(args.save_dir, f'log_{split_name}')
-        trainer = Trainer(args, log)
-        checkpoint_path = os.path.join(args.save_dir, 'checkpoint')
-        model = DistilBertForQuestionAnswering.from_pretrained(checkpoint_path)
-        model.to(args.device)
-        eval_dataset, eval_dict = get_dataset(args, args.eval_datasets, args.eval_dir, tokenizer, split_name)
-        eval_loader = DataLoader(eval_dataset,
-                                 batch_size=args.batch_size,
-                                 sampler=SequentialSampler(eval_dataset))
-        eval_preds, eval_scores = trainer.evaluate(model, eval_loader,
-                                                   eval_dict, return_preds=True,
-                                                   split=split_name)
-        results_str = ', '.join(f'{k}: {v:05.2f}' for k, v in eval_scores.items())
-        log.info(f'Eval {results_str}')
-        # Write submission file
-        sub_path = os.path.join(args.save_dir, split_name + '_' + args.sub_file)
-        log.info(f'Writing submission file to {sub_path}...')
-        with open(sub_path, 'w', newline='', encoding='utf-8') as csv_fh:
-            csv_writer = csv.writer(csv_fh, delimiter=',')
-            csv_writer.writerow(['Id', 'Predicted'])
-            for uuid in sorted(eval_preds):
-                csv_writer.writerow([uuid, eval_preds[uuid]])
+        elif loss_type == "NLL": # This is the negative log likelihood loss
+            criterion = torch.nn.NLLLoss()
+            loss = criterion(dis_log_probs, true_labels)
+            return loss
+
+    def train(self, qa_model, train_dataloader, eval_dataloader, val_dict, best_scores, stage):
+        device = self.device
+        qa_model.to(device)
+        qa_optim = AdamW(qa_model.parameters(), lr=self.lr)
+        global_idx = 0
+        tbx = SummaryWriter(self.save_dir)
+
+        for epoch_num in range(self.num_epochs):
+            self.log.info(f'Epoch: {epoch_num}')
+            with torch.enable_grad(), tqdm(total=len(train_dataloader.dataset)) as progress_bar:
+                for batch in train_dataloader:
+                    qa_model.train()
+                    self.Discriminator.train()
+                    
+                    # DATA PARSING
+                    # Process the data & get the outputs!
+                    input_ids = batch['input_ids'].to(device)
+                    attention_mask = batch['attention_mask'].to(device)
+                    start_positions = batch['start_positions'].to(device)
+                    end_positions = batch['end_positions'].to(device)
+                    domain_id = batch['domain_id'].to(device)
+
+                    # QA PREDICTION
+                    # First make a QA prediction
+                    qa_optim.zero_grad()
+                    qa_outputs = qa_model(input_ids, attention_mask=attention_mask,
+                                    start_positions=start_positions,
+                                    end_positions=end_positions,
+                                    output_hidden_states=True)
+
+                    # Store the QA loss to train later
+                    qa_loss = qa_outputs.loss
+
+                    # QA hidden states
+                    # Last layer of hidden_states is pulled like this
+                    # See https://github.com/huggingface/transformers/blob/v4.16.2/src/transformers/models/distilbert/modeling_distilbert.py#L330
+                    qa_last_hidden_state = qa_outputs.hidden_states[-1]
+
+                    if self.full_embedding:
+                        # send in inputs for the entire layer
+                        qa_hidden_input = torch.flatten(qa_last_hidden_state, start_dim=1)
+                    else:
+                        # send in the CLS embedding since we have 384 tokens
+                        qa_hidden_input = qa_last_hidden_state[:, 0]
+
+                    
+                    # Can also average the tokens
+                    # qa_hidden_input = torch.mean(qa_last_hidden_state, dim=1)
+                    
+
+                    # QA TRAINING WITH DISCRIMINATOR ADVERSAIRAL LOSS
+                    # we add the KL adversarial loss to the normal CE loss
+                    
+                    # Call discriminator to compute the KL adversarial loss
+                    adv_output = self.Discriminator(qa_hidden_input)
+                    KL_adv_loss = self.discriminator_loss(adv_output, domain_id, "KLD")
+
+                    # This is the new loss that penalizes the QA loss if adv_loss does well
+                    if self.anneal:
+                        self.dis_lambda = 0.01 * kl_coef(global_idx) # Anneal accordingly (intuition: progressively train discriminator with harder examples)
+
+                    total_loss = qa_loss + self.dis_lambda*KL_adv_loss
+                    total_loss = total_loss.mean()
+                    total_loss.backward()
+                    
+                    qa_optim.step()
 
 
-if __name__ == '__main__':
-    main()
+
+                    # As per the original GAN algorithm, let the discriminator train multiple times for a given batch
+                    # Give the discriminator a better fighting chance
+                    for step in range(self.num_adv_steps):
+                        # Impose W Regularization if needed
+                        # This clips our weights to enforce gradient constraint for smoother training of discriminator
+                        if self.w_reg:
+                            for param in self.Discriminator.parameters():
+                                param.data.clamp_(-0.01, 0.01) # This is the suggested range used in the WGAN paper
+                                
+                        self.dis_optim.zero_grad()
+                        dis_output = self.Discriminator(qa_hidden_input.clone().detach())
+                        dis_loss = self.discriminator_loss(dis_output, domain_id, "NLL")
+                        dis_loss = dis_loss.mean() # average the loss across batch
+                        dis_loss.backward() # Backward propagate
+                        self.dis_optim.step() # Take a step
+                    
+                    # Display epochs and losses in progress bar
+                    progress_bar.update(len(input_ids))
+                    progress_bar.set_postfix(epoch=epoch_num, 
+                                             qa_loss=qa_loss.item(),
+                                             dis_loss=dis_loss.item(),
+                                             total_loss=total_loss.item())
+
+                    # Add losses to tensorboard
+                    tbx.add_scalar('train/qa_loss', qa_loss.item(), global_idx)
+                    tbx.add_scalar('train/dis_loss', dis_loss.item(), global_idx)
+                    tbx.add_scalar('train/total_loss', total_loss.item(), global_idx)
+
+                    if (global_idx % self.eval_every) == 0:
+                        self.log.info(f'Evaluating at step {global_idx}...')
+                        preds, curr_score = self.evaluate(qa_model, eval_dataloader, val_dict, return_preds=True)
+                        results_str = ', '.join(f'{k}: {v:05.2f}' for k, v in curr_score.items())
+                        self.log.info('Visualizing in TensorBoard...')
+                        for k, v in curr_score.items():
+                            tbx.add_scalar(f'val/{k}', v, global_idx)
+                        self.log.info(f'Eval {results_str}')
+                        if self.visualize_predictions:
+                            util.visualize(tbx,
+                                           pred_dict=preds,
+                                           gold_dict=val_dict,
+                                           step=global_idx,
+                                           split='val',
+                                           num_visuals=self.num_visuals)
+                        if curr_score['F1'] >= best_scores['F1']:
+                            best_scores = curr_score
+                            self.save(qa_model, stage)
+                    global_idx += 1
+        return best_scores      
+    
+
+
+
