@@ -10,6 +10,7 @@ class DomainDiscriminator(nn.Module):
     def __init__(self, num_classes=3, input_size=768, # Default num classes is 3 - we train the DD on the original 3 ID datasets and then finetune it on the 3 OOD datasets
                  hidden_size=768, num_layers=3, dropout=0.1): # Right now, use 3 hidden layers
         super(DomainDiscriminator, self).__init__()
+        args = get_train_test_args()
         self.num_layers = num_layers
         hidden_layers = []
         for i in range(num_layers):
