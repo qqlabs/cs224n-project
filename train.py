@@ -237,15 +237,17 @@ class AdversarialTrainer(Trainer):
                     
                     qa_optim.step()
 
-                    # Impose W Regularization if needed
-                    # This clips our weights to enforce gradient constraint for smoother training of discriminator
-                    if self.w_reg:
-                        for param in self.Discriminator.parameters():
-                            param.data.clamp_(-0.01, 0.01) # This is the suggested range used in the WGAN paper
+
 
                     # As per the original GAN algorithm, let the discriminator train multiple times for a given batch
                     # Give the discriminator a better fighting chance
                     for step in range(self.num_adv_steps):
+                        # Impose W Regularization if needed
+                        # This clips our weights to enforce gradient constraint for smoother training of discriminator
+                        if self.w_reg:
+                            for param in self.Discriminator.parameters():
+                                param.data.clamp_(-0.01, 0.01) # This is the suggested range used in the WGAN paper
+                                
                         self.dis_optim.zero_grad()
                         dis_output = self.Discriminator(qa_hidden_input.clone().detach())
                         dis_loss = self.discriminator_loss(dis_output, domain_id, "NLL")
