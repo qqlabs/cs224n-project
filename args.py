@@ -8,6 +8,7 @@ def get_train_test_args():
     parser.add_argument('--w-reg', action='store_true') # Imposes W regularization on the discriminator loss function
     parser.add_argument('--batch-size', type=int, default=16)
     parser.add_argument('--combined', action='store_true') # Train on IID + OOD
+    parser.add_argument('--combinedwAug', action='store_true') # Train on IID + OOD + OOD Augmented
     parser.add_argument('--binary-align', action='store_true') # Binary domain alignment
     parser.add_argument('--wiki-align', action='store_true') # Align based on Wiki vs non-Wiki datasets
     parser.add_argument('--anneal', action='store_true') # Anneal discriminator lambda based on the global step you are taking

@@ -45,15 +45,19 @@ def main():
             trainer = Trainer(args, log)
 
         # Train on IID + OOD
-        if args.combined: 
+        if args.combined or args.combinedwAug: 
             if args.binary_align: # Domain ID is binary - 0 for IID and 1 for OOD
                 # Create cache by tokenizing, don't load anything so we use less memory
                 # Note, here the domain ID will be 0
                 for dataset_name in args.train_datasets.split(','):
-                    create_cache(args, dataset_name, args.train_dir, tokenizer, 'train', 0)                    
+                    create_cache(args, dataset_name, args.train_dir, tokenizer, 'train', 0)
+
                 # For this, the domain ID will be 1
                 for dataset_name in args.OOD_train_datasets.split(','):
-                    create_cache(args, dataset_name, args.OOD_train_dir, tokenizer, 'train', 1)                       
+                    if args.combined:
+                        create_cache(args, dataset_name, args.OOD_train_dir, tokenizer, 'train', 1)
+                    else:
+                        create_cache(args, dataset_name + "_combined", args.OOD_train_dir, tokenizer, 'train', 1)                     
 
                 train_dataset = []
                 for dataset_name in args.train_datasets.split(','):
@@ -61,18 +65,32 @@ def main():
                     train_dataset.append(tmp_train_dataset)
 
                 for dataset_name in args.OOD_train_datasets.split(','):
-                    tmp_train_dataset, _ = get_dataset(args, dataset_name, args.OOD_train_dir, tokenizer, 'train', 1)
+                    if args.combined:
+                        tmp_train_dataset, _ = get_dataset(args, dataset_name, args.OOD_train_dir, tokenizer, 'train', 1)
+                    else:
+                        tmp_train_dataset, _ = get_dataset(args, dataset_name + "_combined", args.OOD_train_dir, tokenizer, 'train', 1)
                     train_dataset.append(tmp_train_dataset)
 
             elif args.wiki_align:
-                # Wiki
-                create_cache(args, 'squad', args.train_dir, tokenizer, 'train', 0)    
-                create_cache(args, 'nat_questions', args.train_dir, tokenizer, 'train', 0)
-                create_cache(args, 'relation_extraction', args.OOD_train_dir, tokenizer, 'train', 0)
-                # Non-Wiki                            
-                create_cache(args, 'newsqa', args.train_dir, tokenizer, 'train', 1)    
-                create_cache(args, 'duorc', args.OOD_train_dir, tokenizer, 'train', 1)
-                create_cache(args, 'race', args.OOD_train_dir, tokenizer, 'train', 1)                                     
+                if args.combined:
+                    # Wiki
+                    create_cache(args, 'squad', args.train_dir, tokenizer, 'train', 0)    
+                    create_cache(args, 'nat_questions', args.train_dir, tokenizer, 'train', 0)
+                    create_cache(args, 'relation_extraction', args.OOD_train_dir, tokenizer, 'train', 0)
+                    # Non-Wiki                            
+                    create_cache(args, 'newsqa', args.train_dir, tokenizer, 'train', 1)    
+                    create_cache(args, 'duorc', args.OOD_train_dir, tokenizer, 'train', 1)
+                    create_cache(args, 'race', args.OOD_train_dir, tokenizer, 'train', 1)       
+
+                else:
+                    # Wiki
+                    create_cache(args, 'squad', args.train_dir, tokenizer, 'train', 0)    
+                    create_cache(args, 'nat_questions', args.train_dir, tokenizer, 'train', 0)
+                    create_cache(args, 'relation_extraction_combined', args.OOD_train_dir, tokenizer, 'train', 0)
+                    # Non-Wiki                            
+                    create_cache(args, 'newsqa', args.train_dir, tokenizer, 'train', 1)    
+                    create_cache(args, 'duorc_combined', args.OOD_train_dir, tokenizer, 'train', 1)
+                    create_cache(args, 'race_combined', args.OOD_train_dir, tokenizer, 'train', 1)                                     
 
                 train_dataset = []
                 for dataset_name in args.train_datasets.split(','):
@@ -88,17 +106,24 @@ def main():
                         domain_id = 0
                     else:
                         domain_id = 1
-                    tmp_train_dataset, _ = get_dataset(args, dataset_name, args.OOD_train_dir, tokenizer, 'train', domain_id)
+                    if args.combined:
+                        tmp_train_dataset, _ = get_dataset(args, dataset_name, args.OOD_train_dir, tokenizer, 'train', domain_id)
+                    else:
+                        tmp_train_dataset, _ = get_dataset(args, dataset_name + "_combined", args.OOD_train_dir, tokenizer, 'train', domain_id)
                     train_dataset.append(tmp_train_dataset)
 
             else: # Standard multi-source alignment. Each dataset gets an index from 0 to 5
                 # Note, here the domain ID will be from 0 to 2
                 for domain_id, dataset_name in enumerate(args.train_datasets.split(',')):
-                    create_cache(args, dataset_name, args.train_dir, tokenizer, 'train', domain_id)            
+                    create_cache(args, dataset_name, args.train_dir, tokenizer, 'train', domain_id)
+         
                 num_IID_dataset = len(args.train_datasets.split(','))            
                 # For this, the domain ID should go from 3 to 5
                 for domain_id, dataset_name in enumerate(args.OOD_train_datasets.split(',')):
-                    create_cache(args, dataset_name, args.OOD_train_dir, tokenizer, 'train', domain_id+num_IID_dataset)                       
+                    if args.combined:
+                        create_cache(args, dataset_name, args.OOD_train_dir, tokenizer, 'train', domain_id+num_IID_dataset)
+                    else:
+                        create_cache(args, dataset_name + "_combined", args.OOD_train_dir, tokenizer, 'train', domain_id+num_IID_dataset)                      
 
                 train_dataset = []
 
@@ -107,7 +132,10 @@ def main():
                     train_dataset.append(tmp_train_dataset)
 
                 for domain_id, dataset_name in enumerate(args.OOD_train_datasets.split(',')):
-                    tmp_train_dataset, _ = get_dataset(args, dataset_name, args.OOD_train_dir, tokenizer, 'train', domain_id+num_IID_dataset)
+                    if args.combined:
+                        tmp_train_dataset, _ = get_dataset(args, dataset_name, args.OOD_train_dir, tokenizer, 'train', domain_id+num_IID_dataset)
+                    else:
+                        tmp_train_dataset, _ = get_dataset(args, dataset_name + "_combined", args.OOD_train_dir, tokenizer, 'train', domain_id+num_IID_dataset)
                     train_dataset.append(tmp_train_dataset)
 
         else: # Train on only IID
