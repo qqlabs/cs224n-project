@@ -2,11 +2,15 @@ name: robustqa
 channels:
   - pytorch
   - defaults
+  - conda-forge
 dependencies:
   - pip=20.3.1
   - python=3.6.8
   - numpy
   - tqdm
+  - sentencepieces
+  - pandas
+  - nltk
   - pip:
     - torch==1.7.1
     - tqdm==4.49.0
