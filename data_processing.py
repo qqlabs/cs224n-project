@@ -111,12 +111,14 @@ def prepare_train_data(dataset_dict, tokenizer, domain_id):
 def read_and_process(args, tokenizer, dataset_dict, dir_name, dataset_name, split, domain_id):
     #TODO: cache this if possible
     cache_path = f'{dir_name}/{dataset_name}_{domain_id}_encodings.pt'
-    if os.path.exists(cache_path) and not args.recompute_features:
-        print(f"Loading cache from {cache_path}")
-        tokenized_examples = util.load_pickle(cache_path)
-        print(f"Cache loaded successfully.")
-    else:
-        print(f'No cache found for {cache_path}')
+    # if os.path.exists(cache_path) and not args.recompute_features:
+    #     print(f"Loading cache from {cache_path}")
+    #     tokenized_examples = util.load_pickle(cache_path)
+    #     print(f"Cache loaded successfully.")
+    # else:
+    # turning off caching
+    if True:
+        # print(f'No cache found for {cache_path}')
         if split=='train':
             tokenized_examples = prepare_train_data(dataset_dict, tokenizer, domain_id)
         else:
@@ -135,7 +137,9 @@ def create_cache(args, datasets, data_dir, tokenizer, split_name, domain_id):
         dataset_dict = util.merge(dataset_dict, dataset_dict_curr)
     
     cache_path = f'{data_dir}/{dataset_name}_{domain_id}_encodings.pt'
-    if args.recompute_features or not os.path.exists(cache_path):
+    # if args.recompute_features or not os.path.exists(cache_path):
+    # turning off caching
+    if True:
         print(f"Creating cache at {cache_path}")
         if split_name=='train':
             tokenized_examples = prepare_train_data(dataset_dict, tokenizer, domain_id)
