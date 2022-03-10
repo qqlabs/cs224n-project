@@ -1,4 +1,5 @@
 from collections import defaultdict
+from collections import OrderedDict
 import os
 import csv
 import json
@@ -261,6 +262,8 @@ def main():
         eval_scores_dict = {}
         eval_scores_dict['Overall'] = defaultdict(int)
 
+        all_preds = OrderedDict()
+
         for dataset in eval_datasets:
             eval_dataset, eval_dict = get_dataset(args, dataset, args.eval_dir, tokenizer, split_name)
             num_qas[dataset] = len(eval_dict['question'])
@@ -270,6 +273,7 @@ def main():
             eval_preds, eval_scores = trainer.evaluate(model, eval_loader,
                                                     eval_dict, return_preds=True,
                                                     split=split_name)
+            all_preds.update(eval_preds)
             eval_scores_dict[dataset] = eval_scores
             results_str = ', '.join(f'{k}: {v:05.2f}' for k, v in eval_scores.items())
 
@@ -300,8 +304,8 @@ def main():
             with open(sub_path, 'w', newline='', encoding='utf-8') as csv_fh:
                 csv_writer = csv.writer(csv_fh, delimiter=',')
                 csv_writer.writerow(['Id', 'Predicted'])
-                for uuid in sorted(eval_preds):
-                    csv_writer.writerow([uuid, eval_preds[uuid]])
+                for uuid in sorted(all_preds):
+                    csv_writer.writerow([uuid, all_preds[uuid]])
 
 
 if __name__ == '__main__':

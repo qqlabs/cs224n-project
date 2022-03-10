@@ -17,13 +17,13 @@
                 // "domain_gan"
 
                 // "--synth-file",
-                "--aug",
-                "datasets/oodomain_train/duorc_aug"
-                // "--do-eval",
-                // "--eval-dir",
-                // "datasets/oodomain_val",
-                // "--save-dir",
-                // "save/adversarial-01"
+                // "--aug",
+                // "datasets/oodomain_train/duorc_aug"
+                "--do-eval",
+                "--eval-dir",
+                "datasets/oodomain_val",
+                "--save-dir",
+                "save/adv_wiki_synth_aug1"
             ]
         }
     ]
