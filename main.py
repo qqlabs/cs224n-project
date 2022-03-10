@@ -203,6 +203,12 @@ def main():
         OOD_train_dataset = []
 
         for domain_id, dataset_name in enumerate(args.OOD_train_datasets.split(',')):
+            # combine variants if needed
+            if args.variants == '':
+                util.write_squad(util.read_squad(f'{args.OOD_train_dir}/{dataset_name}_orig'), f'{args.OOD_train_dir}/{dataset_name}')
+            else:
+                util.combine_qas(f'{args.OOD_train_dir}/{dataset_name}', args.variants.split(','), with_suffix=False)
+
             create_cache(args, dataset_name, args.OOD_train_dir, tokenizer, 'train', domain_id)
  
         for domain_id, dataset_name in enumerate(args.OOD_train_datasets.split(',')):

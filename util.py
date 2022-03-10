@@ -272,6 +272,27 @@ def write_squad(dataset_dict, filepath):
         json.dump(json_output, outfile)
         print(f'Results written to {filepath}.')
 
+# Combine Variants
+# This function combines multiple files into one file
+# It allows us to merge synthetic and augmented data into 1 file
+# Shared contexts are merged so overall file can be smaller
+def combine_qas(filepath, variants, with_suffix=True):
+    dataset_dict = read_squad(filepath + '_orig')
+
+    print(f"Combining {','.join(variants)}")
+    
+    for variant in variants:
+        variant_dict = read_squad(filepath + '_' + variant)
+
+        dataset_dict['question'].extend(variant_dict['question'])
+        dataset_dict['context'].extend(variant_dict['context'])
+        dataset_dict['id'].extend(variant_dict['id'])
+        dataset_dict['answer'].extend(variant_dict['answer'])
+
+    if with_suffix:
+        filepath = filepath + '_combined'
+    write_squad(dataset_dict, filepath)
+
 def add_token_positions(encodings, answers, tokenizer):
     start_positions = []
     end_positions = []

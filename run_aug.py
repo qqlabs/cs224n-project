@@ -25,7 +25,7 @@ import hashlib
 # from question_generation.qg_trainer import Trainer
 # from question_generation.data_collator import T2TDataCollator
 # from question_generation.qg_utils import freeze_embeds, assert_not_all_frozen
-from util import read_squad, write_squad
+from util import read_squad, write_squad, combine_qas
 
 from question_generation.pipelines import pipeline
 from nltk import sent_tokenize
@@ -221,23 +221,6 @@ def data_aug(file, repeat_aug):
     print(f"Num Questions Generated: {len(aug_samples['answer'])}")
 
     write_squad(aug_samples, file + '_aug')
-    
-# Combine Variants
-# This function combines multiple files into one file
-# It allows us to merge synthetic and augmented data into 1 file
-# Shared contexts are merged so overall file can be smaller
-def combine_qas(filepath, variants):
-    dataset_dict = read_squad(filepath + '_orig')
-
-    for variant in variants:
-        variant_dict = read_squad(filepath + '_' + variant)
-
-        dataset_dict['question'].extend(variant_dict['question'])
-        dataset_dict['context'].extend(variant_dict['context'])
-        dataset_dict['id'].extend(variant_dict['id'])
-        dataset_dict['answer'].extend(variant_dict['answer'])
-
-    write_squad(dataset_dict, filepath + '_combined')
 
 def get_action_args():
     parser = argparse.ArgumentParser()
