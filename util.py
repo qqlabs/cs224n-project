@@ -234,6 +234,8 @@ def read_squad(path):
 def write_squad(dataset_dict, filepath):
     json_output = {'data':[]}
 
+    # organize indices by context so we can do linear scan of contexts and merge
+    # the qas per context together
     sort_idx = sorted(range(len(dataset_dict['context'])), key=dataset_dict['context'].__getitem__)
 
     i = 0
@@ -241,15 +243,20 @@ def write_squad(dataset_dict, filepath):
         full_context = dataset_dict['context'][sort_idx[i]]
         title = full_context[:52]
         qas = []
+        # check next context, if it is the same, then add its questions as well
         while (i + 1 < len(sort_idx)):
             if (dataset_dict['context'][sort_idx[i+1]] != dataset_dict['context'][sort_idx[i]]):
                 break
             # reiterate through answers to format output properly
+            # answers are stored as a list per key (eg answer_start = [x1, x2], text= = [y1, y2])
+            # we need them to be formatted as list of dict [{answer_start:x1, text:y1},{answer_start:x2, text:y2}]
             answers = []
             for a_idx in range(len(dataset_dict['answer'][sort_idx[i]]['answer_start'])):
                 answers.append({'answer_start':dataset_dict['answer'][sort_idx[i]]['answer_start'][a_idx], 'text': dataset_dict['answer'][sort_idx[i]]['text'][a_idx]})
             qas.append({'question': dataset_dict['question'][sort_idx[i]], 'id': dataset_dict['id'][sort_idx[i]], 'answers': answers})
             i += 1
+        
+        # redo this for the current index since we break out of while loop when next one is different
         answers = []
         for a_idx in range(len(dataset_dict['answer'][sort_idx[i]]['answer_start'])):
             answers.append({'answer_start':dataset_dict['answer'][sort_idx[i]]['answer_start'][a_idx], 'text': dataset_dict['answer'][sort_idx[i]]['text'][a_idx]})

@@ -157,7 +157,7 @@ def gen_qas(synth_file):
 # Then extract answer again so if answer span is replaced with synonym,
 # both the answer and context are updated properly.
 # We use the nlpaug package for the synonym replacement step.
-def data_aug(file):
+def data_aug(file, repeat_aug):
     dataset_dict = read_squad(file)
 
     hl_contexts = []
@@ -177,12 +177,15 @@ def data_aug(file):
     aug_samples = {'question': [], 'context': [], 'id': [], 'answer': []}
 
     # augment with wordnet synonym
-    aug = naw.SynonymAug(aug_src='wordnet', stopwords=['<hl>', '\n', '\t', "\'"], aug_min=1, aug_max=5)
+    if 'relation_extraction' in file:
+        aug = naw.SynonymAug(aug_src='wordnet', stopwords=['<hl>', '\n', '\t', "\'"], aug_min=1, aug_max=5)
+    else:
+        aug = naw.SynonymAug(aug_src='wordnet', stopwords=['<hl>', '\n', '\t', "\'"], aug_min=5, aug_max=20)
 
     for idx, context in enumerate(hl_contexts):
         print(f'{idx} of {len(hl_contexts)}')
         # generate augmentation multiple times per answer 
-        for rpt in range(5):
+        for rpt in range(repeat_aug):
             aug_context = ''
             # ensure 2 <hl> exist still
             while aug_context.count('<hl>') != 2:
@@ -211,9 +214,11 @@ def data_aug(file):
             cleaned_context = aug_context.replace('<hl>', '')
         
             aug_samples['question'].append(hl_questions[idx])
-            aug_samples['id'].append(hashlib.md5((question + answer_text).encode('utf-8')).hexdigest())
+            aug_samples['id'].append(hashlib.md5((cleaned_context + question + answer_text).encode('utf-8')).hexdigest())
             aug_samples['context'].append(cleaned_context)
             aug_samples['answer'].append(answer)
+
+    print(f"Num Questions Generated: {len(aug_samples['answer'])}")
 
     write_squad(aug_samples, file + '_aug')
     
@@ -222,7 +227,7 @@ def data_aug(file):
 # It allows us to merge synthetic and augmented data into 1 file
 # Shared contexts are merged so overall file can be smaller
 def combine_qas(filepath, variants):
-    dataset_dict = read_squad(filepath)
+    dataset_dict = read_squad(filepath + '_orig')
 
     for variant in variants:
         variant_dict = read_squad(filepath + '_' + variant)
@@ -239,6 +244,7 @@ def get_action_args():
     parser.add_argument('--synth-file', type=str, default='')
     parser.add_argument('--combine', type=str, default='')
     parser.add_argument('--aug', type=str, default='')
+    parser.add_argument('--repeat-aug', type=int, default=5)
     parser.add_argument('--variants', type=str, default='synth')
     args = parser.parse_args()
     return args
@@ -259,7 +265,7 @@ def main(args_file=None):
     ## Data Aug
     if action_args.aug != '':
         print(f'Generating augmented data for {action_args.aug}')
-        data_aug(action_args.aug)
+        data_aug(action_args.aug, action_args.repeat_aug)
         return
 
 if __name__ == "__main__":

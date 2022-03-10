@@ -239,7 +239,10 @@ def main():
         split_name = 'test' if 'test' in args.eval_dir else 'validation'
         log = util.get_logger(args.save_dir, f'log_{split_name}')
         trainer = Trainer(args, log)
-        checkpoint_path = os.path.join(args.save_dir, 'finetune_checkpoint') # Load the FINETUNED model. Note: we should add a toggle here...
+        if args.finetune_name == 'none':
+            checkpoint_path = os.path.join(args.save_dir, 'checkpoint')
+        else:
+            checkpoint_path = os.path.join(args.save_dir, args.finetune_name + '_finetune_checkpoint') # Load the FINETUNED model. Note: we should add a toggle here...
         model = DistilBertForQuestionAnswering.from_pretrained(checkpoint_path)
         model.to(args.device)
 
@@ -282,7 +285,7 @@ def main():
 
         log.info('Easy Copy Paste')
         log.info(f'Datasets: {dataset_str}')
-        log.info(f'Scores: {results_str}')
+        log.info(f'Finetune {args.finetune_name} Scores: {results_str}')
 
         # Write submission file
         if args.sub_file != "":
