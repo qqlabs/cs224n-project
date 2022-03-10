@@ -141,7 +141,7 @@ class AdversarialTrainer(Trainer):
         else:
             self.input_size = 768 # Pass in CLS token which is 768 dim
             self.hidden_size = 768
-        if args.combined:
+        if args.combined or args.combinedwAug:
             if args.binary_align or args.wiki_align:
                 self.num_domains = 2
             else:
