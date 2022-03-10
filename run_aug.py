@@ -53,7 +53,7 @@ import nlpaug.augmenter.word as naw
 # the model). We also use roundtrip consistency to validate the
 # generated answers match a QA model's prediction.
 def gen_qas(synth_file):
-    dataset_dict = read_squad(synth_file)
+    dataset_dict = read_squad(synth_file + '_orig')
     context_list = list(set(dataset_dict['context']))
     
     json_output = {'data':[]}
@@ -158,7 +158,7 @@ def gen_qas(synth_file):
 # both the answer and context are updated properly.
 # We use the nlpaug package for the synonym replacement step.
 def data_aug(file, repeat_aug):
-    dataset_dict = read_squad(file)
+    dataset_dict = read_squad(file + '_orig')
 
     hl_contexts = []
     hl_questions = []
