@@ -22,7 +22,7 @@ class Trainer():
         self.device = args.device
         self.eval_every = args.eval_every
         self.path = os.path.join(args.save_dir, 'checkpoint') # Where I store my model after training it on IID training
-        self.finetune_path = os.path.join(args.save_dir, 'finetune_checkpoint') # Where I store my model after finetuning it on OOD training
+        self.finetune_path = os.path.join(args.save_dir, args.finetune_name + '_finetune_checkpoint') # Where I store my model after finetuning it on OOD training
         self.num_visuals = args.num_visuals
         self.save_dir = args.save_dir
         self.log = log

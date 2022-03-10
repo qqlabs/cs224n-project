@@ -34,6 +34,8 @@ def get_train_test_args():
     parser.add_argument('--eval-datasets', type=str, default='race,relation_extraction,duorc')
     parser.add_argument('--do-train', action='store_true') # Train
     parser.add_argument('--do-finetune', action='store_true') # Finetune
+    parser.add_argument('--finetune-name', type=str, default='none')
+    parser.add_argument('--variants', type=str, default='')
     parser.add_argument('--do-eval', action='store_true') # Evaluate
     parser.add_argument('--sub-file', type=str, default='')
     parser.add_argument('--visualize-predictions', action='store_true')

@@ -11,10 +11,19 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "args":[
-                "--do-train",
-                "--adv-train", 
-                "--run-name", 
-                "domain_gan"
+                // "--do-train",
+                // "--adv-train", 
+                // "--run-name", 
+                // "domain_gan"
+
+                // "--synth-file",
+                "--aug",
+                "datasets/oodomain_train/duorc_aug"
+                // "--do-eval",
+                // "--eval-dir",
+                // "datasets/oodomain_val",
+                // "--save-dir",
+                // "save/adversarial-01"
             ]
         }
     ]

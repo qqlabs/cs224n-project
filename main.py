@@ -1,3 +1,4 @@
+from collections import defaultdict
 import os
 import csv
 import json
@@ -19,6 +20,7 @@ from torch.utils.data.sampler import RandomSampler, SequentialSampler
 from train import Trainer, AdversarialTrainer
 
 from data_processing import create_cache, get_dataset
+
 
 def main():
     # define parser and arguments
@@ -201,6 +203,12 @@ def main():
         OOD_train_dataset = []
 
         for domain_id, dataset_name in enumerate(args.OOD_train_datasets.split(',')):
+            # combine variants if needed
+            if args.variants == '':
+                util.write_squad(util.read_squad(f'{args.OOD_train_dir}/{dataset_name}_orig'), f'{args.OOD_train_dir}/{dataset_name}')
+            else:
+                util.combine_qas(f'{args.OOD_train_dir}/{dataset_name}', args.variants.split(','), with_suffix=False)
+
             create_cache(args, dataset_name, args.OOD_train_dir, tokenizer, 'train', domain_id)
  
         for domain_id, dataset_name in enumerate(args.OOD_train_datasets.split(',')):
@@ -237,29 +245,54 @@ def main():
         split_name = 'test' if 'test' in args.eval_dir else 'validation'
         log = util.get_logger(args.save_dir, f'log_{split_name}')
         trainer = Trainer(args, log)
-        checkpoint_path = os.path.join(args.save_dir, 'finetune_checkpoint') # Load the FINETUNED model. Note: we should add a toggle here...
+        if args.finetune_name == 'none':
+            checkpoint_path = os.path.join(args.save_dir, 'checkpoint')
+        else:
+            checkpoint_path = os.path.join(args.save_dir, args.finetune_name + '_finetune_checkpoint') # Load the FINETUNED model. Note: we should add a toggle here...
         model = DistilBertForQuestionAnswering.from_pretrained(checkpoint_path)
         model.to(args.device)
 
         # evaluate on every dataset in eval_dir
         eval_datasets = [f for f in os.listdir(args.eval_dir) if ".pt" not in f]
-        combined_eval_data = ','.join(map(str, eval_datasets)) # also eval over all combined datasets
-        eval_datasets.append(combined_eval_data)
+        # combined_eval_data = ','.join(map(str, eval_datasets)) # also eval over all combined datasets
+        # eval_datasets.append(combined_eval_data)
+
+        num_qas = {}
+        eval_scores_dict = {}
+        eval_scores_dict['Overall'] = defaultdict(int)
 
         for dataset in eval_datasets:
             eval_dataset, eval_dict = get_dataset(args, dataset, args.eval_dir, tokenizer, split_name)
+            num_qas[dataset] = len(eval_dict['question'])
             eval_loader = DataLoader(eval_dataset,
                                     batch_size=args.batch_size,
                                     sampler=SequentialSampler(eval_dataset))
             eval_preds, eval_scores = trainer.evaluate(model, eval_loader,
                                                     eval_dict, return_preds=True,
                                                     split=split_name)
+            eval_scores_dict[dataset] = eval_scores
             results_str = ', '.join(f'{k}: {v:05.2f}' for k, v in eval_scores.items())
 
-            if dataset == combined_eval_data:
-                log.info(f'Combined Eval {results_str}')
-            else:
-                log.info(f'{dataset} Eval {results_str}')
+            log.info(f'{dataset} Eval {results_str}')
+
+        for dataset in eval_datasets:
+            for k, v in eval_scores_dict[dataset].items():
+                eval_scores_dict['Overall'][k] += num_qas[dataset]/sum(num_qas.values())*v
+        
+        results_str = ', '.join(f'{k}: {v:05.2f}' for k, v in eval_scores_dict['Overall'].items())
+        log.info(f'Overall Eval {results_str}')
+
+        results_str = ''
+        dataset_str = ''
+        for k,v in eval_scores_dict.items():
+            dataset_str += k + '\t'
+            for metric, score in v.items():
+                results_str += f'{score:05.2f}' + '\t'
+
+        log.info('Easy Copy Paste')
+        log.info(f'Datasets: {dataset_str}')
+        log.info(f'Finetune {args.finetune_name} Scores: {results_str}')
+
         # Write submission file
         if args.sub_file != "":
             sub_path = os.path.join(args.save_dir, split_name + '_' + args.sub_file)            

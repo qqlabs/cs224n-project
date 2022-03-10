@@ -231,6 +231,68 @@ def read_squad(path):
                                                   'text': [answer['text'] for answer in all_answers]})
     return data_dict_collapsed
 
+def write_squad(dataset_dict, filepath):
+    json_output = {'data':[]}
+
+    # organize indices by context so we can do linear scan of contexts and merge
+    # the qas per context together
+    sort_idx = sorted(range(len(dataset_dict['context'])), key=dataset_dict['context'].__getitem__)
+
+    i = 0
+    while i < len(sort_idx):
+        full_context = dataset_dict['context'][sort_idx[i]]
+        title = full_context[:52]
+        qas = []
+        # check next context, if it is the same, then add its questions as well
+        while (i + 1 < len(sort_idx)):
+            if (dataset_dict['context'][sort_idx[i+1]] != dataset_dict['context'][sort_idx[i]]):
+                break
+            # reiterate through answers to format output properly
+            # answers are stored as a list per key (eg answer_start = [x1, x2], text= = [y1, y2])
+            # we need them to be formatted as list of dict [{answer_start:x1, text:y1},{answer_start:x2, text:y2}]
+            answers = []
+            for a_idx in range(len(dataset_dict['answer'][sort_idx[i]]['answer_start'])):
+                answers.append({'answer_start':dataset_dict['answer'][sort_idx[i]]['answer_start'][a_idx], 'text': dataset_dict['answer'][sort_idx[i]]['text'][a_idx]})
+            qas.append({'question': dataset_dict['question'][sort_idx[i]], 'id': dataset_dict['id'][sort_idx[i]], 'answers': answers})
+            i += 1
+        
+        # redo this for the current index since we break out of while loop when next one is different
+        answers = []
+        for a_idx in range(len(dataset_dict['answer'][sort_idx[i]]['answer_start'])):
+            answers.append({'answer_start':dataset_dict['answer'][sort_idx[i]]['answer_start'][a_idx], 'text': dataset_dict['answer'][sort_idx[i]]['text'][a_idx]})
+        qas.append({'question': dataset_dict['question'][sort_idx[i]], 'id': dataset_dict['id'][sort_idx[i]], 'answers': answers})
+        i += 1
+        json_entry = {
+            "title":title,
+            "paragraphs":[{"context": full_context, "qas": qas}] 
+        }
+        json_output['data'].append(json_entry)
+
+    with open(filepath, 'w') as outfile:
+        json.dump(json_output, outfile)
+        print(f'Results written to {filepath}.')
+
+# Combine Variants
+# This function combines multiple files into one file
+# It allows us to merge synthetic and augmented data into 1 file
+# Shared contexts are merged so overall file can be smaller
+def combine_qas(filepath, variants, with_suffix=True):
+    dataset_dict = read_squad(filepath + '_orig')
+
+    print(f"Combining {','.join(variants)}")
+    
+    for variant in variants:
+        variant_dict = read_squad(filepath + '_' + variant)
+
+        dataset_dict['question'].extend(variant_dict['question'])
+        dataset_dict['context'].extend(variant_dict['context'])
+        dataset_dict['id'].extend(variant_dict['id'])
+        dataset_dict['answer'].extend(variant_dict['answer'])
+
+    if with_suffix:
+        filepath = filepath + '_combined'
+    write_squad(dataset_dict, filepath)
+
 def add_token_positions(encodings, answers, tokenizer):
     start_positions = []
     end_positions = []
