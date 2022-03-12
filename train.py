@@ -12,6 +12,8 @@ from model import DomainDiscriminator
 
 from tqdm import tqdm
 
+import numpy as np
+
 
 #TODO: use a logger, use tensorboard
 class Trainer():
@@ -38,32 +40,43 @@ class Trainer():
         elif stage == "finetune":
             model.save_pretrained(self.finetune_path)
     
-    def evaluate(self, model, data_loader, data_dict, return_preds=False, split='validation'):
+    def evaluate(self, models, data_loader, data_dict, return_preds=False, split='validation'):
         device = self.device
 
-        model.eval()
-        pred_dict = {}
-        all_start_logits = []
-        all_end_logits = []
-        with torch.no_grad(), \
-                tqdm(total=len(data_loader.dataset)) as progress_bar:
-            for batch in data_loader:
-                # Setup for forward
-                input_ids = batch['input_ids'].to(device)
-                attention_mask = batch['attention_mask'].to(device)
-                batch_size = len(input_ids)
-                outputs = model(input_ids, attention_mask=attention_mask)
-                # Forward
-                start_logits, end_logits = outputs.start_logits, outputs.end_logits
-                # TODO: compute loss
+        start_logits_all_models = []
+        end_logits_all_models = []
 
-                all_start_logits.append(start_logits)
-                all_end_logits.append(end_logits)
-                progress_bar.update(batch_size)
+        for model in models:
+            model.eval()
+            pred_dict = {}
+            all_start_logits = []
+            all_end_logits = []
+            with torch.no_grad(), \
+                    tqdm(total=len(data_loader.dataset)) as progress_bar:
+                for batch in data_loader:
+                    # Setup for forward
+                    input_ids = batch['input_ids'].to(device)
+                    attention_mask = batch['attention_mask'].to(device)
+                    batch_size = len(input_ids)
+                    outputs = model(input_ids, attention_mask=attention_mask)
+                    # Forward
+                    start_logits, end_logits = outputs.start_logits, outputs.end_logits
+                    # TODO: compute loss
+
+                    all_start_logits.append(start_logits)
+                    all_end_logits.append(end_logits)
+                    progress_bar.update(batch_size)
+
+            
+            start_logits = torch.cat(all_start_logits).cpu().numpy()
+            end_logits = torch.cat(all_end_logits).cpu().numpy()
+            start_logits_all_models.append(start_logits)
+            end_logits_all_models.append(end_logits)
+
+        start_logits = np.mean(start_logits_all_models, axis=0)
+        end_logits = np.mean(end_logits_all_models, axis=0)
 
         # Get F1 and EM scores
-        start_logits = torch.cat(all_start_logits).cpu().numpy()
-        end_logits = torch.cat(all_end_logits).cpu().numpy()
         preds = util.postprocess_qa_predictions(data_dict,
                                                  data_loader.dataset.encodings,
                                                  (start_logits, end_logits))
@@ -107,7 +120,7 @@ class Trainer():
                     tbx.add_scalar('train/NLL', loss.item(), global_idx)
                     if (global_idx % self.eval_every) == 0:
                         self.log.info(f'Evaluating at step {global_idx}...')
-                        preds, curr_score = self.evaluate(model, eval_dataloader, val_dict, return_preds=True)
+                        preds, curr_score = self.evaluate([model], eval_dataloader, val_dict, return_preds=True)
                         results_str = ', '.join(f'{k}: {v:05.2f}' for k, v in curr_score.items())
                         self.log.info('Visualizing in TensorBoard...')
                         for k, v in curr_score.items():
@@ -269,7 +282,7 @@ class AdversarialTrainer(Trainer):
 
                     if (global_idx % self.eval_every) == 0:
                         self.log.info(f'Evaluating at step {global_idx}...')
-                        preds, curr_score = self.evaluate(qa_model, eval_dataloader, val_dict, return_preds=True)
+                        preds, curr_score = self.evaluate([qa_model], eval_dataloader, val_dict, return_preds=True)
                         results_str = ', '.join(f'{k}: {v:05.2f}' for k, v in curr_score.items())
                         self.log.info('Visualizing in TensorBoard...')
                         for k, v in curr_score.items():

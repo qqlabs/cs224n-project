@@ -244,14 +244,25 @@ def main():
     if args.do_eval:
         args.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         split_name = 'test' if 'test' in args.eval_dir else 'validation'
-        log = util.get_logger(args.save_dir, f'log_{split_name}')
+        
+
+        finetune_names = args.finetune_name.split(',')
+
+        models = []
+
+        save_dirs = args.save_dir.split(',')
+
+        log = util.get_logger(save_dirs[0], f'log_{split_name}')
         trainer = Trainer(args, log)
-        if args.finetune_name == 'none':
-            checkpoint_path = os.path.join(args.save_dir, 'checkpoint')
-        else:
-            checkpoint_path = os.path.join(args.save_dir, args.finetune_name + '_finetune_checkpoint') # Load the FINETUNED model. Note: we should add a toggle here...
-        model = DistilBertForQuestionAnswering.from_pretrained(checkpoint_path)
-        model.to(args.device)
+
+        for idx, finetune_name in enumerate(finetune_names):
+            if finetune_name == 'none':
+                checkpoint_path = os.path.join(save_dirs[idx], 'checkpoint')
+            else:
+                checkpoint_path = os.path.join(save_dirs[idx], finetune_name + '_finetune_checkpoint') # Load the FINETUNED model. Note: we should add a toggle here...
+            model = DistilBertForQuestionAnswering.from_pretrained(checkpoint_path)
+            model.to(args.device)
+            models.append(model)
 
         # evaluate on every dataset in eval_dir
         eval_datasets = [f for f in os.listdir(args.eval_dir) if ".pt" not in f]
@@ -270,7 +281,7 @@ def main():
             eval_loader = DataLoader(eval_dataset,
                                     batch_size=args.batch_size,
                                     sampler=SequentialSampler(eval_dataset))
-            eval_preds, eval_scores = trainer.evaluate(model, eval_loader,
+            eval_preds, eval_scores = trainer.evaluate(models, eval_loader,
                                                     eval_dict, return_preds=True,
                                                     split=split_name)
             all_preds.update(eval_preds)
@@ -299,7 +310,7 @@ def main():
 
         # Write submission file
         if args.sub_file != "":
-            sub_path = os.path.join(args.save_dir, split_name + '_' + args.sub_file)            
+            sub_path = os.path.join(save_dirs[0], split_name + '_' + args.sub_file)            
             log.info(f'Writing submission file to {sub_path}...')
             with open(sub_path, 'w', newline='', encoding='utf-8') as csv_fh:
                 csv_writer = csv.writer(csv_fh, delimiter=',')
