@@ -281,7 +281,8 @@ def main():
             all_gold['question'].extend(eval_dict['question'])
             all_gold['context'].extend(eval_dict['context'])
             all_gold['id'].extend(eval_dict['id'])
-            all_gold['answer'].extend(eval_dict['answer'])
+            if split_name != 'test':
+                all_gold['answer'].extend(eval_dict['answer'])
 
             num_qas[dataset] = len(eval_dict['question'])
             eval_loader = DataLoader(eval_dataset,
@@ -314,11 +315,10 @@ def main():
         log.info(f'Datasets: {dataset_str}')
         log.info(f'Finetune {args.finetune_name} Scores: {results_str}')
 
-        # calculate F1 per row to find mistakes
-        output_dict = util.error_analysis(all_gold, all_preds)
-
         # Write error analysis
-        if args.error_file != "":
+        if (args.error_file != "") & (split_name != 'test'):
+            # calculate F1 per row to find mistakes
+            output_dict = util.error_analysis(all_gold, all_preds)
             sub_path = os.path.join(save_dirs[0], split_name + '_' + args.error_file)            
             log.info(f'Writing error analysis file to {sub_path}...')
             with open(sub_path, 'w', newline='', encoding='utf-8') as csv_fh:
@@ -334,8 +334,8 @@ def main():
             with open(sub_path, 'w', newline='', encoding='utf-8') as csv_fh:
                 csv_writer = csv.writer(csv_fh, delimiter=',')
                 csv_writer.writerow(['Id', 'Predicted'])
-                for uuid in sorted(output_dict):
-                    csv_writer.writerow([uuid, output_dict[uuid]['pred']])
+                for uuid in sorted(all_preds):
+                    csv_writer.writerow([uuid, all_preds[uuid]])
 
 
 if __name__ == '__main__':
