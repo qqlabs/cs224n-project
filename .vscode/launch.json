@@ -21,11 +21,13 @@
                 // "datasets/oodomain_train/duorc_aug"
                 "--do-eval",
                 "--finetune-name",
-                "aug1,aug1",
+                "aug1",
                 "--eval-dir",
                 "datasets/oodomain_val",
                 "--save-dir",
-                "save/adv_wiki_synth_aug1,save/adv_wiki_synth_aug1"
+                "save/adv_wiki_synth_aug1",
+                "--error-file",
+                "preds.csv"
             ]
         }
     ]

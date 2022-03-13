@@ -362,6 +362,29 @@ def metric_max_over_ground_truths(metric_fn, prediction, ground_truths):
         scores_for_ground_truths.append(score)
     return max(scores_for_ground_truths)
 
+def error_analysis(gold_dict, pred_dict):
+    id2index = {curr_id : idx for idx, curr_id in enumerate(gold_dict['id'])}
+
+    output_dict = {}
+
+    for curr_id in pred_dict:
+        output_row = {}
+        index = id2index[curr_id]
+        ground_truths = gold_dict['answer'][index]['text']
+        output_row['gold'] = ground_truths
+
+        prediction = pred_dict[curr_id]
+        output_row['pred'] = prediction
+
+        em = metric_max_over_ground_truths(compute_em, prediction, ground_truths)
+        output_row['em'] = em
+
+        f1 = metric_max_over_ground_truths(compute_f1, prediction, ground_truths)
+        output_row['f1'] = f1
+
+        output_dict[curr_id] = output_row
+
+    return output_dict
 
 def eval_dicts(gold_dict, pred_dict):
     avna = f1 = em = total = 0

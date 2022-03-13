@@ -274,9 +274,15 @@ def main():
         eval_scores_dict['Overall'] = defaultdict(int)
 
         all_preds = OrderedDict()
+        all_gold = {'question': [], 'context': [], 'id': [], 'answer': []}
 
         for dataset in eval_datasets:
             eval_dataset, eval_dict = get_dataset(args, dataset, args.eval_dir, tokenizer, split_name)
+            all_gold['question'].extend(eval_dict['question'])
+            all_gold['context'].extend(eval_dict['context'])
+            all_gold['id'].extend(eval_dict['id'])
+            all_gold['answer'].extend(eval_dict['answer'])
+
             num_qas[dataset] = len(eval_dict['question'])
             eval_loader = DataLoader(eval_dataset,
                                     batch_size=args.batch_size,
@@ -308,6 +314,19 @@ def main():
         log.info(f'Datasets: {dataset_str}')
         log.info(f'Finetune {args.finetune_name} Scores: {results_str}')
 
+        # calculate F1 per row to find mistakes
+        output_dict = util.error_analysis(all_gold, all_preds)
+
+        # Write error analysis
+        if args.error_file != "":
+            sub_path = os.path.join(save_dirs[0], split_name + '_' + args.error_file)            
+            log.info(f'Writing error analysis file to {sub_path}...')
+            with open(sub_path, 'w', newline='', encoding='utf-8') as csv_fh:
+                csv_writer = csv.writer(csv_fh, delimiter=',')
+                csv_writer.writerow(['Id', 'Predicted', 'Gold', 'F1', 'EM'])
+                for uuid in sorted(output_dict):
+                    csv_writer.writerow([uuid, output_dict[uuid]['pred'], output_dict[uuid]['gold'], output_dict[uuid]['f1'], output_dict[uuid]['em']])
+
         # Write submission file
         if args.sub_file != "":
             sub_path = os.path.join(save_dirs[0], split_name + '_' + args.sub_file)            
@@ -315,8 +334,8 @@ def main():
             with open(sub_path, 'w', newline='', encoding='utf-8') as csv_fh:
                 csv_writer = csv.writer(csv_fh, delimiter=',')
                 csv_writer.writerow(['Id', 'Predicted'])
-                for uuid in sorted(all_preds):
-                    csv_writer.writerow([uuid, all_preds[uuid]])
+                for uuid in sorted(output_dict):
+                    csv_writer.writerow([uuid, output_dict[uuid]['pred']])
 
 
 if __name__ == '__main__':

@@ -38,6 +38,7 @@ def get_train_test_args():
     parser.add_argument('--variants', type=str, default='')
     parser.add_argument('--do-eval', action='store_true') # Evaluate
     parser.add_argument('--sub-file', type=str, default='')
+    parser.add_argument('--error-file', type=str, default='')
     parser.add_argument('--visualize-predictions', action='store_true')
     parser.add_argument('--eval-every', type=int, default=5000)
     args = parser.parse_args()
