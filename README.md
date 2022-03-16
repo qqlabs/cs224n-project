@@ -1,4 +1,5 @@
-# CS224N default final project (2022 RobustQA track)
+# Generating Robustness: 6 Ways to Adapt Question Answering to New Domains
+CS224N default final project (2022 RobustQA track)
 
 ## Starter code for robustqa track
 - Download datasets from [here](https://drive.google.com/file/d/1Fv2d30hY-2niU7t61ktnMsi_HUXS6-Qx/view?usp=sharing)
