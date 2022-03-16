@@ -381,6 +381,9 @@ def error_analysis(gold_dict, pred_dict):
 
         f1 = metric_max_over_ground_truths(compute_f1, prediction, ground_truths)
         output_row['f1'] = f1
+        
+        output_row['question'] = gold_dict['question'][index]
+        output_row['context'] = gold_dict['context'][index]
 
         output_dict[curr_id] = output_row
 

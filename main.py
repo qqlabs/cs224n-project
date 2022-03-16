@@ -323,9 +323,9 @@ def main():
             log.info(f'Writing error analysis file to {sub_path}...')
             with open(sub_path, 'w', newline='', encoding='utf-8') as csv_fh:
                 csv_writer = csv.writer(csv_fh, delimiter=',')
-                csv_writer.writerow(['Id', 'Predicted', 'Gold', 'F1', 'EM'])
+                csv_writer.writerow(['Id', 'Predicted', 'Gold', 'F1', 'EM', 'Question', 'Context'])
                 for uuid in sorted(output_dict):
-                    csv_writer.writerow([uuid, output_dict[uuid]['pred'], output_dict[uuid]['gold'], output_dict[uuid]['f1'], output_dict[uuid]['em']])
+                    csv_writer.writerow([uuid, output_dict[uuid]['pred'], output_dict[uuid]['gold'], output_dict[uuid]['f1'], output_dict[uuid]['em'], output_dict[uuid]['question'], output_dict[uuid]['context']])
 
         # Write submission file
         if args.sub_file != "":
