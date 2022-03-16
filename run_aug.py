@@ -156,7 +156,8 @@ def gen_qas(synth_file):
 # Then run augmentation
 # Then extract answer again so if answer span is replaced with synonym,
 # both the answer and context are updated properly.
-# We use the nlpaug package for the synonym replacement step.
+# We use the nlpaug package for the synonym replacement step. Source
+# can be found here: https://github.com/makcedward/nlpaug
 def data_aug(file, repeat_aug):
     dataset_dict = read_squad(file + '_orig')
 

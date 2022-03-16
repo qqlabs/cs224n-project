@@ -1,3 +1,6 @@
+# This code is modified from its original source at
+# https://github.com/patil-suraj/question_generation
+
 import itertools
 import logging
 from typing import Optional, Dict, Union
